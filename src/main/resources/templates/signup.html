@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Up - Skynet</title>
+    <link rel="stylesheet" href="/Styles.css">
+</head>
+<body>
+<div class="signup-container">
+    <h1>Sign Up</h1>
+
+    <!-- Add this at the top of your body tag -->
+    <div th:if="${errorMessage}" th:text="${errorMessage}" id="error-message" style="display: none;"></div>
+
+<!--    <script>-->
+<!--        window.onload = function() {-->
+<!--            var errorMessage = document.getElementById("error-message").textContent;-->
+<!--            if (errorMessage) {-->
+<!--                alert(errorMessage);-->
+<!--            }-->
+<!--        };-->
+<!--    </script>-->
+
+
+    <form id="signupForm" class="signup-form" action="/signup" method="post">
+        <input type="text" name="firstName" id="firstName" placeholder="First name" required>
+        <input type="text" name="lastName" id="lastName" placeholder="Last name" required>
+        <input type="email" name="email" id="email" placeholder="Email" required>
+        <input type="password" name="password" id="password" placeholder="Password" required>
+        <input type="password" name="confirm_password" id="confirm_password" placeholder="Confirm Password" required>
+        <select name="country" id="country" required>
+            <option value="">Country of Residence</option>
+            <!-- Populate with options -->
+            <option value="India">India</option>
+            <option value="USA">USA</option>
+            <option value="UK">UK</option>
+            <option value="Europe">Europe</option>
+            <option value="Japan">Japan</option>
+            <option value="China">China</option>
+            <option value="Canada">Canada</option>
+            <option value="Australia">Australia</option>
+            <option value="South Korea">South Korea</option>
+        </select>
+        <div class="phone-group">
+            <select name="phone_code" id="phoneCode" required>
+                <option value="+91">IN +91</option>
+                <!-- Populate with options -->
+                <option value="+1">US +1</option>
+                <option value="+04">UK +04</option>
+                <option value="+44">EU +44</option>
+                <option value="+63">CH +63</option>
+            </select>
+            <input type="tel" name="phone" id="phone" placeholder="Phone" required>
+        </div>
+        <label class="privacy-policy">
+            <input type="checkbox" id="privacyPolicy" required>
+            I agree to the privacy policy
+        </label>
+        <div class="g-recaptcha" data-sitekey="your_site_key"></div>
+        <button type="submit">Sign Up</button>
+        <p>Already a member? <a href="Login.html">Log In</a></p>
+    </form>
+</div>
+<script>
+    window.onload = function() {
+        var errorMessage = document.getElementById("error-message").textContent;
+        if (errorMessage) {
+            alert(errorMessage);
+        }
+    };
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const password = document.getElementById('password');
+        const confirmPassword = document.getElementById('confirm_password');
+        const form = document.getElementById('signupForm');
+
+        function validatePassword() {
+            if (password.value !== confirmPassword.value) {
+                confirmPassword.setCustomValidity('Passwords do not match');
+            } else {
+                confirmPassword.setCustomValidity('');
+            }
+        }
+
+        password.onchange = validatePassword;
+        confirmPassword.onkeyup = validatePassword;
+
+        form.onsubmit = function(event) {
+            event.preventDefault();
+            if (password.value === confirmPassword.value) {
+                this.submit();
+            } else {
+                alert("Passwords do not match. Please try again.");
+            }
+        };
+    });
+</script>
+<!--<script src="https://www.google.com/recaptcha/api.js" async defer></script>-->
+</body>
+</html>
