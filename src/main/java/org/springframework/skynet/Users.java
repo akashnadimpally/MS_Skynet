@@ -30,7 +30,7 @@ public class Users {
     @Column(name="country")
     private String country;
 
-//    @Column(name="password")
+    @Column(name="password")
     private String password;
 
     @Column(name = "contact_number", unique = true)

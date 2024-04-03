@@ -23,7 +23,7 @@
 <!--    </script>-->
 
 
-    <form id="signupForm" class="signup-form" action="/signup" method="post">
+    <form id="signupForm" class="signup-form" action="/signup" method="post" th:action="@{/signup}">
         <input type="text" name="firstName" id="firstName" placeholder="First name" required>
         <input type="text" name="lastName" id="lastName" placeholder="Last name" required>
         <input type="email" name="email" id="email" placeholder="Email" required>
@@ -58,6 +58,7 @@
             I agree to the privacy policy
         </label>
         <div class="g-recaptcha" data-sitekey="your_site_key"></div>
+        <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}" />
         <button type="submit">Sign Up</button>
         <p>Already a member? <a href="Login.html">Log In</a></p>
     </form>
