@@ -10,7 +10,7 @@
 <div class="login-form-container">
     <h2>Log In</h2>
     <p>New to this site? <a href="signup.html">Sign Up</a></p>
-    <form id="loginForm" action="#" method="post">
+    <form id="loginForm" class="signin-form" action="/signin" method="post" th:action="@{/signin}">
         <div class="input-field">
             <label for="email">Email *</label>
             <input type="email" id="email" name="email" placeholder="Enter Email" required>
@@ -28,6 +28,18 @@
 <!--        </div>-->
     </form>
 </div>
-<script src="/JS/login.js"></script>
+<script>
+    window.onload = function() {
+        var loginError = new URLSearchParams(window.location.search).get('loginError');
+        if (loginError) {
+            alert("Incorrect credentials. Please try again.");
+        }
+
+        document.getElementById('loginForm').onsubmit = function(event) {
+            // Existing form submission logic
+        };
+    };
+</script>
+
 </body>
 </html>
