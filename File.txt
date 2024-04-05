@@ -11,7 +11,6 @@ import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -23,7 +22,7 @@ public class CustomAuthenticationProvider implements AuthenticationProvider {
     private CustomUserDetailsService userDetailsService;
 
     @Autowired
-    private PasswordDecryptor decryptor;
+    private PasswordEncryptorDecryptor encryptorDecryptor; // Use PasswordEncryptorDecryptor
 
     @Override
     public Authentication authenticate(Authentication authentication) throws AuthenticationException {
@@ -33,14 +32,13 @@ public class CustomAuthenticationProvider implements AuthenticationProvider {
         UserDetails userDetails = userDetailsService.loadUserByUsername(username);
 
         try {
-            String decryptedPassword = decryptor.decrypt(userDetails.getPassword());
+            String decryptedPassword = encryptorDecryptor.decryptPassword(userDetails.getPassword()); // Use decryptPassword method
             if (!decryptedPassword.equals(rawPassword)) {
                 throw new BadCredentialsException("Invalid username or password");
             }
 
             return new UsernamePasswordAuthenticationToken(username, decryptedPassword, userDetails.getAuthorities());
         } catch (Exception e) {
-            // Handle the exception, possibly throw a BadCredentialsException or another appropriate exception
             throw new BadCredentialsException("Decryption failed", e);
         }
     }
@@ -162,6 +160,8 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import org.springframework.security.core.AuthenticationException;
 
+import org.springframework.skynet.PasswordEncryptorDecryptor;
+
 @Controller
 public class MainController {
 
@@ -169,6 +169,9 @@ public class MainController {
 
     @Autowired
     private UsersService usersService;
+
+    @Autowired
+    private PasswordEncryptorDecryptor passwordEncryptorDecryptor;
 
     @Autowired
     private AuthenticationManager authenticationManager;
@@ -191,11 +194,13 @@ public class MainController {
                                @RequestParam String phone,
                                HttpServletRequest request,
                                RedirectAttributes redirectAttributes) {
+        logger.info("Registering user: {}", user.getEmail());
         try {
             user.setContactNumber(phone_code, phone);
-
+            logger.info("ERRORRR found : {}",result.hasErrors());
             if (result.hasErrors()) {
                 // Log errors or send them back to the form
+                logger.error("Form errors: {}", result.getAllErrors());
                 return "signup"; // Return back to signup form with error details
             }
 
@@ -207,11 +212,17 @@ public class MainController {
             // Temporarily set the password without encryption for testing
             // user.setPassword(user.getPassword());
 
+            // Encrypt the password before saving
+            String encryptedPassword = passwordEncryptorDecryptor.encryptPassword(user.getPassword());
+            user.setPassword(encryptedPassword);
+
             usersService.saveUser(user);
             request.getSession().setAttribute("registrationCompleted", true);
             logger.info("User saved successfully");
+            logger.info("User saved successfully with ID: {}", user.getId());
             return "redirect:/success";
         } catch (DataIntegrityViolationException e) {
+            logger.error("Duplicate entry: " + e.getMessage());
             redirectAttributes.addFlashAttribute("errorMessage", "Duplicate entry detected. Please try again with different credentials.");
             return "redirect:/signup";
         } catch (Exception e) {
@@ -220,8 +231,6 @@ public class MainController {
             return "redirect:/signup";
         }
     }
-
-
 
     @GetMapping("/success")
     public String success(HttpServletRequest request) {
@@ -257,44 +266,87 @@ public class MainController {
         }
     }
 
-
-
 }
-
 
 package org.springframework.skynet;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import javax.crypto.Cipher;
-import javax.crypto.KeyGenerator;
-import javax.crypto.SecretKey;
+import javax.crypto.*;
 import javax.crypto.spec.SecretKeySpec;
+import java.io.UnsupportedEncodingException;
+import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 
 @Component
-public class PasswordDecryptor {
+public class PasswordEncryptorDecryptor {
 
     @Value("${secretKey}")
-    private String secretKey;
+    private String secretKeyEncoded;
 
-    public String decrypt(String encryptedPassword) throws Exception {
-        // Convert Base64 encoded string to byte array
-        byte[] decodedKey = Base64.getDecoder().decode(secretKey);
+    private static final Logger logger = LoggerFactory.getLogger(PasswordEncryptorDecryptor.class);
 
-        // Reconstruct the key using SecretKeySpec
-        SecretKey originalKey = new SecretKeySpec(decodedKey, 0, decodedKey.length, "AES");
+
+    public PasswordEncryptorDecryptor() {
+        logger.info("PasswordEncryptorDecryptor Bean Created");
+        logger.info("Secret Key Loaded: {}", secretKeyEncoded != null);
+    }
+
+
+
+    public String encryptPassword(String password) throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, GeneralSecurityException, IllegalBlockSizeException, BadPaddingException, UnsupportedEncodingException {
+        byte[] decodedKey = Base64.getDecoder().decode(secretKeyEncoded);
+        SecretKeySpec secretKeySpec = new SecretKeySpec(decodedKey, "AES");
 
         Cipher cipher = Cipher.getInstance("AES");
-        cipher.init(Cipher.DECRYPT_MODE, originalKey);
+        cipher.init(Cipher.ENCRYPT_MODE, secretKeySpec);
 
-        byte[] decodedBytes = Base64.getDecoder().decode(encryptedPassword);
-        byte[] decryptedBytes = cipher.doFinal(decodedBytes);
+        byte[] encryptedBytes = cipher.doFinal(password.getBytes(StandardCharsets.UTF_8));
 
-        return new String(decryptedBytes);
+        return Base64.getEncoder().encodeToString(encryptedBytes);
+    }
+
+    public String decryptPassword(String encryptedPassword) throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, UnsupportedEncodingException, IllegalBlockSizeException, GeneralSecurityException, BadPaddingException, BadPaddingException {
+        byte[] decodedKey = Base64.getDecoder().decode(secretKeyEncoded);
+        SecretKeySpec secretKeySpec = new SecretKeySpec(decodedKey, "AES");
+
+        Cipher cipher = Cipher.getInstance("AES");
+        cipher.init(Cipher.DECRYPT_MODE, secretKeySpec);
+
+        byte[] decryptedBytes = cipher.doFinal(Base64.getDecoder().decode(encryptedPassword));
+
+        return new String(decryptedBytes, StandardCharsets.UTF_8);
+    }
+}
+
+
+package org.springframework.skynet;
+
+import org.springframework.beans.factory.config.PropertiesFactoryBean;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.PropertySource;
+import org.springframework.core.env.Environment;
+import org.springframework.core.io.ResourceLoader;
+
+
+@Configuration
+@PropertySource("classpath:keyvalue.properties")
+public class PropertiesConfig {
+
+    @Bean
+    public PropertiesFactoryBean keyValueProperties(Environment environment, ResourceLoader resourceLoader) {
+        PropertiesFactoryBean bean = new PropertiesFactoryBean();
+        bean.setLocation(resourceLoader.getResource("classpath:keyvalue.properties"));
+        return bean;
     }
 }
 
@@ -322,12 +374,17 @@ package org.springframework.skynet;
 
 import javax.crypto.*;
 import javax.crypto.spec.SecretKeySpec;
+import java.io.UnsupportedEncodingException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Base64;
 
+
 import jakarta.persistence.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 
 @Entity
@@ -354,6 +411,8 @@ public class Users {
     @Value("${secretKey}")
     private String secretKey;
 
+    private static final Logger logger = LoggerFactory.getLogger(PasswordEncryptorDecryptor.class);
+
     @Column(name="password")
     private String password;
 
@@ -362,6 +421,15 @@ public class Users {
 
     private transient String phone_code;
     private transient String phone;
+
+    @Transient
+    private PasswordEncryptorDecryptor passwordEncryptorDecryptor;
+
+    @Autowired
+    public void setPasswordEncryptorDecryptor(PasswordEncryptorDecryptor passwordEncryptorDecryptor) {
+        this.passwordEncryptorDecryptor = passwordEncryptorDecryptor;
+    }
+
 
     public Long getId() {
         return id;
@@ -416,28 +484,20 @@ public class Users {
         return password;
     }
 
-    public void setPassword(String password) throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
+    public void setPassword(String password) throws Exception {
 
         if (password == null || password.isEmpty()) {
             throw new IllegalArgumentException("Password cannot be empty");
         }
 
-        // Generate AES Key
-//        KeyGenerator keyGen = KeyGenerator.getInstance("AES");
-//        keyGen.init(128); // 128-bit AES
-//        SecretKey secretKey = keyGen.generateKey();
+        try {
+            PasswordEncryptorDecryptor encryptorpasswd = new PasswordEncryptorDecryptor();
+            this.password = encryptorpasswd.encryptPassword(password);
+        } catch (Exception e) {
+            logger.error("Error setting password: ", e);
+            throw e; // Re-throw the exception to ensure it's not swallowed silently.
+        }
 
-//        String secretKey = "your-secure-key";
-        SecretKeySpec secretKeySpec = new SecretKeySpec(secretKey.getBytes(), "AES");
-
-        // Create Cipher instance and initialize it for encryption
-        Cipher cipher = Cipher.getInstance("AES");
-        cipher.init(Cipher.ENCRYPT_MODE, secretKeySpec);
-
-        byte[] encryptedBytes = cipher.doFinal(password.getBytes());
-
-        // Set encrypted password
-        this.password = Base64.getEncoder().encodeToString(encryptedBytes);
     }
 
 }
@@ -460,6 +520,7 @@ public interface UsersRepository extends CrudRepository<Users, Long> {
 
 
 package org.springframework.skynet;
+import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.skynet.Users;
@@ -470,10 +531,13 @@ public class UsersService {
     @Autowired
     private UsersRepository usersRepository;
 
+
+    @Transactional
     public void saveUser(Users user) {
         usersRepository.save(user);
     }
 }
+
 
 package org.springframework.skynet;
 
@@ -548,14 +612,232 @@ public class WebSecurityConfig {
 
 }
 
-
-src/main/resources
+resources
 
 static/Styles.css
 
-templates
+body, html {
+    margin: 0;
+    padding: 0;
+    font-family: Arial, sans-serif;
+}
+
+header {
+    border-bottom: 1px solid #000;
+    padding: 1rem 0;
+}
+
+.header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 0 10%;
+}
+
+.logo {
+    font-weight: bold;
+    font-size: 1.5rem;
+}
+
+nav ul {
+    list-style: none;
+    display: flex;
+    margin: 0;
+    padding: 0;
+}
+
+nav ul li {
+    padding-left: 2rem;
+}
+
+nav ul li a {
+    text-decoration: none;
+    color: #000;
+    font-weight: bold;
+}
+
+.hero {
+    text-align: center;
+    padding: 2rem;
+    background-image: url('path-to-your-image.jpg'); /* Replace with your image path */
+    background-size: cover;
+    background-position: center;
+}
+
+.hero-content {
+    padding-top: 5%; /* Adjust according to your design */
+}
+
+.tagline {
+    font-size: 1.2rem;
+    margin: 1rem 0;
+}
+
+button {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    font-size: 1rem;
+    margin-top: 2rem;
+}
+
+button:hover {
+    background-color: #0056b3;
+}
+
+/* Add this to your existing styles.css */
+.login-form-container {
+    width: 300px;
+    margin: 50px auto;
+    padding: 20px;
+    background: #fff;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.login-form-container h2 {
+    text-align: center;
+}
+
+.login-form-container p {
+    text-align: center;
+}
+
+.login-form-container .input-field {
+    margin-bottom: 15px;
+}
+
+.login-form-container label {
+    display: block;
+    margin-bottom: 5px;
+}
+
+.login-form-container input[type="email"],
+.login-form-container input[type="password"] {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.login-btn {
+    width: 100%;
+    padding: 10px;
+    background-color: #007bff;
+    border: none;
+    border-radius: 4px;
+    color: white;
+    margin-top: 10px;
+}
+
+.login-btn:hover {
+    background-color: #0056b3;
+}
+
+.forgot-password-link {
+    display: block;
+    text-align: right;
+    margin-bottom: 20px;
+}
+
+.separator {
+    text-align: center;
+    margin: 20px 0;
+}
+
+.social-login-buttons {
+    text-align: center;
+}
+
+.social-button {
+    padding: 10px 20px;
+    margin: 0 5px;
+    border: none;
+    color: #fff;
+    border-radius: 4px;
+}
+
+.google {
+    background-color: #dd4b39;
+}
+
+.facebook {
+    background-color: #3b5998;
+}
+
+.social-button:hover {
+    opacity: 0.8;
+}
+
+/* Add these styles to your existing CSS file */
+.signup-container {
+    max-width: 500px;
+    margin: 2rem auto;
+    padding: 1rem;
+    background-color: #fff;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.signup-form h1 {
+    text-align: center;
+    margin-bottom: 1rem;
+}
+
+.signup-form input[type="text"],
+.signup-form input[type="email"],
+.signup-form input[type="password"],
+.signup-form select,
+.signup-form input[type="tel"] {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+.phone-group {
+    display: flex;
+}
+
+.phone-group select,
+.phone-group input[type="tel"] {
+    flex: 1;
+}
+
+.phone-group select {
+    margin-right: 10px;
+}
+
+.privacy-policy {
+    margin: 10px 0;
+}
+
+.g-recaptcha {
+    margin-bottom: 10px;
+}
+
+.signup-form button[type="submit"] {
+    width: 100%;
+    padding: 10px;
+    border: none;
+    border-radius: 4px;
+    background-color: #000;
+    color: white;
+    margin-bottom: 10px;
+}
+
+.signup-form button[type="submit"]:hover {
+    background-color: #333;
+}
+
+.signup-form p {
+    text-align: center;
+}
+
 
 Account.html
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -567,7 +849,10 @@ Account.html
 </body>
 </html>
 
+templates
+
 Home.html
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -603,8 +888,8 @@ Home.html
 </body>
 </html>
 
-
 signin.html
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -651,9 +936,8 @@ signin.html
 </body>
 </html>
 
-
-
 signup.html
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -668,16 +952,6 @@ signup.html
 
     <!-- Add this at the top of your body tag -->
     <div th:if="${errorMessage}" th:text="${errorMessage}" id="error-message" style="display: none;"></div>
-
-<!--    <script>-->
-<!--        window.onload = function() {-->
-<!--            var errorMessage = document.getElementById("error-message").textContent;-->
-<!--            if (errorMessage) {-->
-<!--                alert(errorMessage);-->
-<!--            }-->
-<!--        };-->
-<!--    </script>-->
-
 
     <form id="signupForm" class="signup-form" action="/signup" method="post" th:action="@{/signup}">
         <input type="text" name="firstName" id="firstName" placeholder="First name" required>
@@ -720,13 +994,6 @@ signup.html
     </form>
 </div>
 <script>
-    window.onload = function() {
-        var errorMessage = document.getElementById("error-message").textContent;
-        if (errorMessage) {
-            alert(errorMessage);
-        }
-    };
-
     document.addEventListener('DOMContentLoaded', function() {
         const password = document.getElementById('password');
         const confirmPassword = document.getElementById('confirm_password');
@@ -744,21 +1011,21 @@ signup.html
         confirmPassword.onkeyup = validatePassword;
 
         form.onsubmit = function(event) {
-            event.preventDefault();
-            if (password.value === confirmPassword.value) {
-                this.submit();
-            } else {
+            if (password.value !== confirmPassword.value) {
+                event.preventDefault();
                 alert("Passwords do not match. Please try again.");
             }
         };
     });
 </script>
+
 <!--<script src="https://www.google.com/recaptcha/api.js" async defer></script>-->
 </body>
 </html>
 
 
 Success.html
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -778,6 +1045,8 @@ Success.html
 </div>
 </body>
 </html>
+
+
 
 
 application.properties
@@ -862,4 +1131,4 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 keyvalue.properties
-secretKey=1DE6EF17CE35FAB24DAE8E07EFB292251FF472350C224D117ACD4300EB267317
+secretKey=6CB3260FBAA93FC3AEC051E25B5A9EF5

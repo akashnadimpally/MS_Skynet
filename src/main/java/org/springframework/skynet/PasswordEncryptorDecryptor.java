@@ -7,17 +7,32 @@ import javax.crypto.*;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+
 @Component
 public class PasswordEncryptorDecryptor {
 
-    @Value("${secretKey}")
-    private String secretKeyEncoded;
+//    @Value("${secretKey}")
+    private final String secretKeyEncoded="6CB3260FBAA93FC3AEC051E25B5A9EF5";
 
-    public String encryptPassword(String password) throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException, UnsupportedEncodingException {
+    private static final Logger logger = LoggerFactory.getLogger(PasswordEncryptorDecryptor.class);
+
+
+    public PasswordEncryptorDecryptor() {
+        logger.info("PasswordEncryptorDecryptor Bean Created");
+        logger.info("Secret Key Loaded: {}", true);
+    }
+
+
+
+    public String encryptPassword(String password) throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, GeneralSecurityException, IllegalBlockSizeException, BadPaddingException, UnsupportedEncodingException {
         byte[] decodedKey = Base64.getDecoder().decode(secretKeyEncoded);
         SecretKeySpec secretKeySpec = new SecretKeySpec(decodedKey, "AES");
 
@@ -29,7 +44,7 @@ public class PasswordEncryptorDecryptor {
         return Base64.getEncoder().encodeToString(encryptedBytes);
     }
 
-    public String decryptPassword(String encryptedPassword) throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException, BadPaddingException {
+    public String decryptPassword(String encryptedPassword) throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, UnsupportedEncodingException, IllegalBlockSizeException, GeneralSecurityException, BadPaddingException, BadPaddingException {
         byte[] decodedKey = Base64.getDecoder().decode(secretKeyEncoded);
         SecretKeySpec secretKeySpec = new SecretKeySpec(decodedKey, "AES");
 

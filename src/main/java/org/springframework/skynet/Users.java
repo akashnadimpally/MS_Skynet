@@ -10,6 +10,9 @@ import java.util.Base64;
 
 
 import jakarta.persistence.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 
 @Entity
@@ -33,10 +36,12 @@ public class Users {
     @Column(name="country")
     private String country;
 
-    @Value("${secretKey}")
-    private String secretKey;
+////    @Value("${secretKey}")
+//    private String secretKey = "6CB3260FBAA93FC3AEC051E25B5A9EF5";
 
-//    @Column(name="password")
+    private static final Logger logger = LoggerFactory.getLogger(PasswordEncryptorDecryptor.class);
+
+    @Column(name="password")
     private String password;
 
     @Column(name = "contact_number", unique = true)
@@ -44,6 +49,15 @@ public class Users {
 
     private transient String phone_code;
     private transient String phone;
+
+    @Transient
+    private PasswordEncryptorDecryptor passwordEncryptorDecryptor;
+
+    @Autowired
+    public void setPasswordEncryptorDecryptor(PasswordEncryptorDecryptor passwordEncryptorDecryptor) {
+        this.passwordEncryptorDecryptor = passwordEncryptorDecryptor;
+    }
+
 
     public Long getId() {
         return id;
@@ -98,32 +112,20 @@ public class Users {
         return password;
     }
 
-    public void setPassword(String password) throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException, UnsupportedEncodingException {
+    public void setPassword(String password) throws Exception {
 
         if (password == null || password.isEmpty()) {
             throw new IllegalArgumentException("Password cannot be empty");
         }
 
-        // Generate AES Key
-//        KeyGenerator keyGen = KeyGenerator.getInstance("AES");
-//        keyGen.init(128); // 128-bit AES
-//        SecretKey secretKey = keyGen.generateKey();
+        try {
+            PasswordEncryptorDecryptor encryptorpasswd = new PasswordEncryptorDecryptor();
+            this.password = encryptorpasswd.encryptPassword(password);
+        } catch (Exception e) {
+            logger.error("Error setting password: ", e);
+            throw e; // Re-throw the exception to ensure it's not swallowed silently.
+        }
 
-//        String secretKey = "your-secure-key";
-//        SecretKeySpec secretKeySpec = new SecretKeySpec(secretKey.getBytes(), "AES");
-//
-//        // Create Cipher instance and initialize it for encryption
-//        Cipher cipher = Cipher.getInstance("AES");
-//        cipher.init(Cipher.ENCRYPT_MODE, secretKeySpec);
-//
-//        byte[] encryptedBytes = cipher.doFinal(password.getBytes());
-
-        PasswordEncryptorDecryptor encryptorpasswd = new PasswordEncryptorDecryptor();
-
-
-        // Set encrypted password
-//        this.password = Base64.getEncoder().encodeToString(encryptedBytes);
-        this.password = encryptorpasswd.encryptPassword(password);
     }
 
 }

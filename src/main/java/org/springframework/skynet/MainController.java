@@ -17,6 +17,8 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import org.springframework.security.core.AuthenticationException;
 
+import org.springframework.skynet.PasswordEncryptorDecryptor;
+
 @Controller
 public class MainController {
 
@@ -24,6 +26,9 @@ public class MainController {
 
     @Autowired
     private UsersService usersService;
+
+    @Autowired
+    private PasswordEncryptorDecryptor passwordEncryptorDecryptor;
 
     @Autowired
     private AuthenticationManager authenticationManager;
@@ -46,11 +51,13 @@ public class MainController {
                                @RequestParam String phone,
                                HttpServletRequest request,
                                RedirectAttributes redirectAttributes) {
+        logger.info("Registering user: {}", user.getEmail());
         try {
             user.setContactNumber(phone_code, phone);
-
+            logger.info("ERRORRR found : {}",result.hasErrors());
             if (result.hasErrors()) {
                 // Log errors or send them back to the form
+                logger.error("Form errors: {}", result.getAllErrors());
                 return "signup"; // Return back to signup form with error details
             }
 
@@ -62,11 +69,17 @@ public class MainController {
             // Temporarily set the password without encryption for testing
             // user.setPassword(user.getPassword());
 
+            // Encrypt the password before saving
+            String encryptedPassword = passwordEncryptorDecryptor.encryptPassword(user.getPassword());
+            user.setPassword(encryptedPassword);
+
             usersService.saveUser(user);
             request.getSession().setAttribute("registrationCompleted", true);
             logger.info("User saved successfully");
+            logger.info("User saved successfully with ID: {}", user.getId());
             return "redirect:/success";
         } catch (DataIntegrityViolationException e) {
+            logger.error("Duplicate entry: " + e.getMessage());
             redirectAttributes.addFlashAttribute("errorMessage", "Duplicate entry detected. Please try again with different credentials.");
             return "redirect:/signup";
         } catch (Exception e) {
@@ -75,8 +88,6 @@ public class MainController {
             return "redirect:/signup";
         }
     }
-
-
 
     @GetMapping("/success")
     public String success(HttpServletRequest request) {
@@ -104,6 +115,7 @@ public class MainController {
                                @RequestParam("password") String password,
                                HttpServletRequest request, RedirectAttributes redirectAttributes) {
         try {
+//            logger.error();
             authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, password));
             return "redirect:/Account";
         } catch (AuthenticationException e) {
@@ -111,7 +123,5 @@ public class MainController {
             return "redirect:/signin";
         }
     }
-
-
 
 }
