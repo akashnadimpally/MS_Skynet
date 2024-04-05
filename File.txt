@@ -77,6 +77,7 @@ public class CustomUserDetailsService implements UserDetailsService {
     }
 }
 
+
 package org.springframework.skynet;
 import java.util.List;
 
@@ -141,6 +142,7 @@ public class GlobalExceptionHandler {
 
 }
 
+
 package org.springframework.skynet;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -157,9 +159,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
-
 import org.springframework.security.core.AuthenticationException;
-
 import org.springframework.skynet.PasswordEncryptorDecryptor;
 
 @Controller
@@ -258,6 +258,7 @@ public class MainController {
                                @RequestParam("password") String password,
                                HttpServletRequest request, RedirectAttributes redirectAttributes) {
         try {
+//            logger.error();
             authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, password));
             return "redirect:/Account";
         } catch (AuthenticationException e) {
@@ -289,15 +290,15 @@ import org.slf4j.LoggerFactory;
 @Component
 public class PasswordEncryptorDecryptor {
 
-    @Value("${secretKey}")
-    private String secretKeyEncoded;
+//    @Value("${secretKey}")
+    private final String secretKeyEncoded="6CB3260FBAA93FC3AEC051E25B5A9EF5";
 
     private static final Logger logger = LoggerFactory.getLogger(PasswordEncryptorDecryptor.class);
 
 
     public PasswordEncryptorDecryptor() {
         logger.info("PasswordEncryptorDecryptor Bean Created");
-        logger.info("Secret Key Loaded: {}", secretKeyEncoded != null);
+        logger.info("Secret Key Loaded: {}", true);
     }
 
 
@@ -325,49 +326,6 @@ public class PasswordEncryptorDecryptor {
 
         return new String(decryptedBytes, StandardCharsets.UTF_8);
     }
-}
-
-
-package org.springframework.skynet;
-
-import org.springframework.beans.factory.config.PropertiesFactoryBean;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.PropertySource;
-import org.springframework.core.env.Environment;
-import org.springframework.core.io.ResourceLoader;
-
-
-@Configuration
-@PropertySource("classpath:keyvalue.properties")
-public class PropertiesConfig {
-
-    @Bean
-    public PropertiesFactoryBean keyValueProperties(Environment environment, ResourceLoader resourceLoader) {
-        PropertiesFactoryBean bean = new PropertiesFactoryBean();
-        bean.setLocation(resourceLoader.getResource("classpath:keyvalue.properties"));
-        return bean;
-    }
-}
-
-
-package org.springframework.skynet;
-
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration;
-import org.springframework.skynet.UsersService;
-
-@SpringBootApplication()
-//					  ☝️
-//#exclude = {SecurityAutoConfiguration.class}
-public class SkynetApplication {
-
-	public static void main(String[] args)
-	{
-		SpringApplication.run(SkynetApplication.class, args);
-	}
-
 }
 
 package org.springframework.skynet;
@@ -408,8 +366,8 @@ public class Users {
     @Column(name="country")
     private String country;
 
-    @Value("${secretKey}")
-    private String secretKey;
+////    @Value("${secretKey}")
+//    private String secretKey = "6CB3260FBAA93FC3AEC051E25B5A9EF5";
 
     private static final Logger logger = LoggerFactory.getLogger(PasswordEncryptorDecryptor.class);
 
@@ -520,21 +478,28 @@ public interface UsersRepository extends CrudRepository<Users, Long> {
 
 
 package org.springframework.skynet;
+
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.skynet.Users;
-import org.springframework.skynet.UsersRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class UsersService {
+
+    private static final Logger logger = LoggerFactory.getLogger(UsersService.class);
+
+
     @Autowired
     private UsersRepository usersRepository;
 
 
     @Transactional
     public void saveUser(Users user) {
+        logger.info("Saving user: {}", user.getEmail());
         usersRepository.save(user);
+        logger.info("User saved with ID: {}", user.getId());
     }
 }
 
@@ -611,6 +576,7 @@ public class WebSecurityConfig {
     }
 
 }
+
 
 resources
 
@@ -1129,6 +1095,3 @@ CREATE TABLE IF NOT EXISTS users (
                        UNIQUE KEY (contact_number),
                        UNIQUE KEY (email)
 );
-
-keyvalue.properties
-secretKey=6CB3260FBAA93FC3AEC051E25B5A9EF5
