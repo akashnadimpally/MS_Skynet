@@ -15,6 +15,9 @@ public class UsersService {
     @Autowired
     private UsersRepository usersRepository;
 
+    @Autowired
+    private PasswordEncoderUtil passwordEncoderUtil;
+
 
     @Transactional
     public void saveUser(Users user) {
@@ -22,5 +25,13 @@ public class UsersService {
         usersRepository.save(user);
         logger.info("User saved with ID: {}", user.getId());
     }
+
+//    public void registerUser(Users user) throws Exception {
+//        String encodedPassword = passwordEncoderUtil.encodePassword(user.getPassword());
+//        user.setPassword(encodedPassword);
+//        usersRepository.save(user);
+//    }
+
+
 }
 

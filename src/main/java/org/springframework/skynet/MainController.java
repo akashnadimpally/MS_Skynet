@@ -4,6 +4,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Controller;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,21 +19,28 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import org.springframework.security.core.AuthenticationException;
 
-import org.springframework.skynet.PasswordEncryptorDecryptor;
 
 @Controller
 public class MainController {
 
     private static final Logger logger = LoggerFactory.getLogger(MainController.class);
 
-    @Autowired
-    private UsersService usersService;
 
-    @Autowired
-    private PasswordEncryptorDecryptor passwordEncryptorDecryptor;
+    private final UsersService usersService;
 
-    @Autowired
-    private AuthenticationManager authenticationManager;
+
+    private final PasswordEncoderUtil passwordEncoderUtil;
+
+
+    private final AuthenticationManager authenticationManager;
+
+
+    public MainController(UsersService usersService, PasswordEncoderUtil passwordEncoderUtil, AuthenticationManager authenticationManager) {
+        this.usersService = usersService;
+        this.passwordEncoderUtil = passwordEncoderUtil;
+        this.authenticationManager = authenticationManager;
+    }
+
 
     @GetMapping({"/home", "/", "/Home"})
     protected String home() {
@@ -66,18 +75,15 @@ public class MainController {
                 return "redirect:/signup";
             }
 
-            // Temporarily set the password without encryption for testing
-            // user.setPassword(user.getPassword());
-
-            // Encrypt the password before saving
-            String encryptedPassword = passwordEncryptorDecryptor.encryptPassword(user.getPassword());
-            user.setPassword(encryptedPassword);
+            // Hash the password before saving
+            String hashedPassword = passwordEncoderUtil.encodePassword(user.getPassword());
+            user.setPassword(hashedPassword);
 
             usersService.saveUser(user);
             request.getSession().setAttribute("registrationCompleted", true);
-            logger.info("User saved successfully");
             logger.info("User saved successfully with ID: {}", user.getId());
             return "redirect:/success";
+
         } catch (DataIntegrityViolationException e) {
             logger.error("Duplicate entry: " + e.getMessage());
             redirectAttributes.addFlashAttribute("errorMessage", "Duplicate entry detected. Please try again with different credentials.");
@@ -115,11 +121,21 @@ public class MainController {
                                @RequestParam("password") String password,
                                HttpServletRequest request, RedirectAttributes redirectAttributes) {
         try {
-//            logger.error();
-            authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, password));
+            logger.info("Session ID before authentication: {}", request.getSession().getId());
+            Authentication authResult = authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, password));
+            SecurityContextHolder.getContext().setAuthentication(authResult);
+            logger.info("Session ID after authentication: {}", request.getSession().getId());
+            logger.info("Authentication: {}", authResult);
             return "redirect:/Account";
+//            logger.info("Login Username: {}", email);
+//            authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, password));
+//            return "redirect:/Account";
         } catch (AuthenticationException e) {
             redirectAttributes.addFlashAttribute("loginError", true);
+            return "redirect:/signin";
+        } catch (Exception e) {
+            logger.error("Login Error ", e);
+            redirectAttributes.addFlashAttribute("errorMessage", "An error occurred. Please try again.");
             return "redirect:/signin";
         }
     }

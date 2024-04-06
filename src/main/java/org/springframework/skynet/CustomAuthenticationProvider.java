@@ -20,7 +20,7 @@ public class CustomAuthenticationProvider implements AuthenticationProvider {
     private CustomUserDetailsService userDetailsService;
 
     @Autowired
-    private PasswordEncryptorDecryptor encryptorDecryptor; // Use PasswordEncryptorDecryptor
+    private PasswordEncoderUtil passwordEncoderUtil;
 
     @Override
     public Authentication authenticate(Authentication authentication) throws AuthenticationException {
@@ -29,16 +29,13 @@ public class CustomAuthenticationProvider implements AuthenticationProvider {
 
         UserDetails userDetails = userDetailsService.loadUserByUsername(username);
 
-        try {
-            String decryptedPassword = encryptorDecryptor.decryptPassword(userDetails.getPassword()); // Use decryptPassword method
-            if (!decryptedPassword.equals(rawPassword)) {
-                throw new BadCredentialsException("Invalid username or password");
-            }
+        String storedPassword = userDetails.getPassword();
 
-            return new UsernamePasswordAuthenticationToken(username, decryptedPassword, userDetails.getAuthorities());
-        } catch (Exception e) {
-            throw new BadCredentialsException("Decryption failed", e);
+        if (!passwordEncoderUtil.matches(rawPassword, storedPassword)) {
+            throw new BadCredentialsException("Invalid username or password");
         }
+
+        return new UsernamePasswordAuthenticationToken(username, null, userDetails.getAuthorities());
     }
 
     @Override

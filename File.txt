@@ -1,5 +1,7 @@
 src/main/java/org/springframework/skynet
 
+CustomAuthenticationProvider.java
+
 package org.springframework.skynet;
 
 import org.slf4j.Logger;
@@ -22,7 +24,7 @@ public class CustomAuthenticationProvider implements AuthenticationProvider {
     private CustomUserDetailsService userDetailsService;
 
     @Autowired
-    private PasswordEncryptorDecryptor encryptorDecryptor; // Use PasswordEncryptorDecryptor
+    private PasswordEncoderUtil passwordEncoderUtil;
 
     @Override
     public Authentication authenticate(Authentication authentication) throws AuthenticationException {
@@ -31,16 +33,13 @@ public class CustomAuthenticationProvider implements AuthenticationProvider {
 
         UserDetails userDetails = userDetailsService.loadUserByUsername(username);
 
-        try {
-            String decryptedPassword = encryptorDecryptor.decryptPassword(userDetails.getPassword()); // Use decryptPassword method
-            if (!decryptedPassword.equals(rawPassword)) {
-                throw new BadCredentialsException("Invalid username or password");
-            }
+        String storedPassword = userDetails.getPassword();
 
-            return new UsernamePasswordAuthenticationToken(username, decryptedPassword, userDetails.getAuthorities());
-        } catch (Exception e) {
-            throw new BadCredentialsException("Decryption failed", e);
+        if (!passwordEncoderUtil.matches(rawPassword, storedPassword)) {
+            throw new BadCredentialsException("Invalid username or password");
         }
+
+        return new UsernamePasswordAuthenticationToken(username, null, userDetails.getAuthorities());
     }
 
     @Override
@@ -49,6 +48,63 @@ public class CustomAuthenticationProvider implements AuthenticationProvider {
     }
 }
 
+CustomUserDetails.java
+
+package org.springframework.skynet;
+
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
+
+import java.util.Collection;
+
+public class CustomUserDetails implements UserDetails {
+
+    private String username;
+    private String password;
+
+    public CustomUserDetails(Users user) {
+        this.username = user.getEmail();
+        this.password = user.getPassword();
+    }
+
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return null; // Implement according to your requirements
+    }
+
+    @Override
+    public String getPassword() {
+        return password;
+    }
+
+    @Override
+    public String getUsername() {
+        return username;
+    }
+
+    @Override
+    public boolean isAccountNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isAccountNonLocked() {
+        return true;
+    }
+
+    @Override
+    public boolean isCredentialsNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isEnabled() {
+        return true;
+    }
+}
+
+CustomUserDetailsService.java
+
 package org.springframework.skynet;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,27 +112,26 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
-
-import java.util.ArrayList;
+import java.util.Optional;
 
 @Service
 public class CustomUserDetailsService implements UserDetailsService {
 
     @Autowired
-    private UsersRepository userRepository;
+    private UsersRepository usersRepository;
 
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
-        Users user = userRepository.findByEmail(username);
-        if (user == null) {
-            throw new UsernameNotFoundException("User not found with email: " + username);
+        Optional<Users> userOptional = usersRepository.findByEmail(username);
+        if (!userOptional.isPresent()) {
+            throw new UsernameNotFoundException("User not found");
         }
-        return new org.springframework.security.core.userdetails.User(
-                user.getEmail(), user.getPassword(), new ArrayList<>()
-        );
+        Users user = userOptional.get();
+        return new CustomUserDetails(user);
     }
 }
 
+ErrorResponse.java
 
 package org.springframework.skynet;
 import java.util.List;
@@ -107,6 +162,9 @@ public class ErrorResponse {
         this.details = details;
     }
 }
+
+
+GlobalExceptionHandler.java
 
 package org.springframework.skynet;
 
@@ -143,12 +201,16 @@ public class GlobalExceptionHandler {
 }
 
 
+MainController.java
+
 package org.springframework.skynet;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Controller;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -159,7 +221,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
+
 import org.springframework.security.core.AuthenticationException;
+
 import org.springframework.skynet.PasswordEncryptorDecryptor;
 
 @Controller
@@ -168,13 +232,21 @@ public class MainController {
     private static final Logger logger = LoggerFactory.getLogger(MainController.class);
 
     @Autowired
-    private UsersService usersService;
+    private final UsersService usersService;
 
     @Autowired
-    private PasswordEncryptorDecryptor passwordEncryptorDecryptor;
+    private final PasswordEncoderUtil passwordEncoderUtil;
 
     @Autowired
     private AuthenticationManager authenticationManager;
+
+
+    public MainController(UsersService usersService, PasswordEncoderUtil passwordEncoderUtil, AuthenticationManager authenticationManager) {
+        this.usersService = usersService;
+        this.passwordEncoderUtil = passwordEncoderUtil;
+        this.authenticationManager = authenticationManager;
+    }
+
 
     @GetMapping({"/home", "/", "/Home"})
     protected String home() {
@@ -209,18 +281,15 @@ public class MainController {
                 return "redirect:/signup";
             }
 
-            // Temporarily set the password without encryption for testing
-            // user.setPassword(user.getPassword());
-
-            // Encrypt the password before saving
-            String encryptedPassword = passwordEncryptorDecryptor.encryptPassword(user.getPassword());
-            user.setPassword(encryptedPassword);
+            // Hash the password before saving
+            String hashedPassword = passwordEncoderUtil.encodePassword(user.getPassword());
+            user.setPassword(hashedPassword);
 
             usersService.saveUser(user);
             request.getSession().setAttribute("registrationCompleted", true);
-            logger.info("User saved successfully");
             logger.info("User saved successfully with ID: {}", user.getId());
             return "redirect:/success";
+
         } catch (DataIntegrityViolationException e) {
             logger.error("Duplicate entry: " + e.getMessage());
             redirectAttributes.addFlashAttribute("errorMessage", "Duplicate entry detected. Please try again with different credentials.");
@@ -258,75 +327,78 @@ public class MainController {
                                @RequestParam("password") String password,
                                HttpServletRequest request, RedirectAttributes redirectAttributes) {
         try {
-//            logger.error();
-            authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, password));
+            logger.info("Session ID before authentication: {}", request.getSession().getId());
+            Authentication authResult = authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, password));
+            SecurityContextHolder.getContext().setAuthentication(authResult);
+            logger.info("Session ID after authentication: {}", request.getSession().getId());
+            logger.info("Authentication: {}", authResult);
             return "redirect:/Account";
+//            logger.info("Login Username: {}", email);
+//            authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, password));
+//            return "redirect:/Account";
         } catch (AuthenticationException e) {
             redirectAttributes.addFlashAttribute("loginError", true);
+            return "redirect:/signin";
+        } catch (Exception e) {
+            logger.error("Login Error ", e);
+            redirectAttributes.addFlashAttribute("errorMessage", "An error occurred. Please try again.");
             return "redirect:/signin";
         }
     }
 
 }
 
+
+PasswordEncoderUtil.java
+
 package org.springframework.skynet;
 
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Component;
 
-import javax.crypto.*;
-import javax.crypto.spec.SecretKeySpec;
-import java.io.UnsupportedEncodingException;
-import java.nio.charset.StandardCharsets;
-import java.security.GeneralSecurityException;
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
-import java.util.Base64;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-
 @Component
-public class PasswordEncryptorDecryptor {
+public class PasswordEncoderUtil {
 
-//    @Value("${secretKey}")
-    private final String secretKeyEncoded="6CB3260FBAA93FC3AEC051E25B5A9EF5";
+    public PasswordEncoderUtil() {
 
-    private static final Logger logger = LoggerFactory.getLogger(PasswordEncryptorDecryptor.class);
-
-
-    public PasswordEncryptorDecryptor() {
-        logger.info("PasswordEncryptorDecryptor Bean Created");
-        logger.info("Secret Key Loaded: {}", true);
     }
 
 
-
-    public String encryptPassword(String password) throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, GeneralSecurityException, IllegalBlockSizeException, BadPaddingException, UnsupportedEncodingException {
-        byte[] decodedKey = Base64.getDecoder().decode(secretKeyEncoded);
-        SecretKeySpec secretKeySpec = new SecretKeySpec(decodedKey, "AES");
-
-        Cipher cipher = Cipher.getInstance("AES");
-        cipher.init(Cipher.ENCRYPT_MODE, secretKeySpec);
-
-        byte[] encryptedBytes = cipher.doFinal(password.getBytes(StandardCharsets.UTF_8));
-
-        return Base64.getEncoder().encodeToString(encryptedBytes);
+    public String encodePassword(String password) {
+        BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+        return passwordEncoder.encode(password);
     }
 
-    public String decryptPassword(String encryptedPassword) throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, UnsupportedEncodingException, IllegalBlockSizeException, GeneralSecurityException, BadPaddingException, BadPaddingException {
-        byte[] decodedKey = Base64.getDecoder().decode(secretKeyEncoded);
-        SecretKeySpec secretKeySpec = new SecretKeySpec(decodedKey, "AES");
-
-        Cipher cipher = Cipher.getInstance("AES");
-        cipher.init(Cipher.DECRYPT_MODE, secretKeySpec);
-
-        byte[] decryptedBytes = cipher.doFinal(Base64.getDecoder().decode(encryptedPassword));
-
-        return new String(decryptedBytes, StandardCharsets.UTF_8);
+    public boolean matches(String rawPassword, String encodedPassword) {
+        BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+        return passwordEncoder.matches(rawPassword, encodedPassword);
     }
 }
+
+
+SkynetApplication.java
+
+package org.springframework.skynet;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration;
+import org.springframework.skynet.UsersService;
+
+@SpringBootApplication()
+//					  ☝️
+//#exclude = {SecurityAutoConfiguration.class}
+public class SkynetApplication {
+
+	public static void main(String[] args)
+	{
+		SpringApplication.run(SkynetApplication.class, args);
+	}
+
+}
+
+
+Users.java
 
 package org.springframework.skynet;
 
@@ -369,7 +441,7 @@ public class Users {
 ////    @Value("${secretKey}")
 //    private String secretKey = "6CB3260FBAA93FC3AEC051E25B5A9EF5";
 
-    private static final Logger logger = LoggerFactory.getLogger(PasswordEncryptorDecryptor.class);
+//    private static final Logger logger = LoggerFactory.getLogger(PasswordEncryptorDecryptor.class);
 
     @Column(name="password")
     private String password;
@@ -380,13 +452,9 @@ public class Users {
     private transient String phone_code;
     private transient String phone;
 
-    @Transient
-    private PasswordEncryptorDecryptor passwordEncryptorDecryptor;
 
-    @Autowired
-    public void setPasswordEncryptorDecryptor(PasswordEncryptorDecryptor passwordEncryptorDecryptor) {
-        this.passwordEncryptorDecryptor = passwordEncryptorDecryptor;
-    }
+//    @Autowired
+//    private PasswordEncoderUtil passwordEncoderUtil;
 
 
     public Long getId() {
@@ -447,35 +515,36 @@ public class Users {
         if (password == null || password.isEmpty()) {
             throw new IllegalArgumentException("Password cannot be empty");
         }
-
-        try {
-            PasswordEncryptorDecryptor encryptorpasswd = new PasswordEncryptorDecryptor();
-            this.password = encryptorpasswd.encryptPassword(password);
-        } catch (Exception e) {
-            logger.error("Error setting password: ", e);
-            throw e; // Re-throw the exception to ensure it's not swallowed silently.
-        }
+        PasswordEncoderUtil passwordEncoderUtil = new PasswordEncoderUtil();
+        this.password = passwordEncoderUtil.encodePassword(password);
 
     }
 
 }
 
 
+UsersRepository.java
+
 package org.springframework.skynet;
 
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.CrudRepository;
 import org.springframework.skynet.Users;
+import java.util.Optional;
+
 
 public interface UsersRepository extends CrudRepository<Users, Long> {
 
     @Query("SELECT u FROM Users u WHERE u.email = ?1")
-    Users findByEmail(String username);
+    Optional<Users> findByEmail(String email);
+
 
     // repository methods
 
 }
 
+
+UsersService.java
 
 package org.springframework.skynet;
 
@@ -494,6 +563,9 @@ public class UsersService {
     @Autowired
     private UsersRepository usersRepository;
 
+    @Autowired
+    private PasswordEncoderUtil passwordEncoderUtil;
+
 
     @Transactional
     public void saveUser(Users user) {
@@ -501,8 +573,19 @@ public class UsersService {
         usersRepository.save(user);
         logger.info("User saved with ID: {}", user.getId());
     }
+
+//    public void registerUser(Users user) throws Exception {
+//        String encodedPassword = passwordEncoderUtil.encodePassword(user.getPassword());
+//        user.setPassword(encodedPassword);
+//        usersRepository.save(user);
+//    }
+
+
 }
 
+
+
+WebSecurityConfig.java
 
 package org.springframework.skynet;
 
@@ -515,9 +598,12 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configuration.WebSecurityConfiguration;
 import org.springframework.security.config.annotation.web.configurers.LogoutConfigurer;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -527,20 +613,28 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 //import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
 
 
 @Configuration
 @EnableWebSecurity
 public class WebSecurityConfig {
 
+    private final UserDetailsService userDetailsService;
+    private final PasswordEncoder passwordEncoder;
 
-    @Autowired
-    private AuthenticationConfiguration authenticationConfiguration;
+    public WebSecurityConfig(UserDetailsService userDetailsService, PasswordEncoder passwordEncoder) {
+        this.userDetailsService = userDetailsService;
+        this.passwordEncoder = passwordEncoder;
+    }
 
     @Bean
-    public AuthenticationManager authenticationManager() throws Exception {
-        return authenticationConfiguration.getAuthenticationManager();
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
     }
+
 
     @Bean
     public SecurityFilterChain filterChain(@NotNull HttpSecurity http) throws Exception {
@@ -567,13 +661,29 @@ public class WebSecurityConfig {
         return http.build();
     }
 
-    @Autowired
-    private CustomAuthenticationProvider customAuthenticationProvider;
 
     @Autowired
-    public void configureGlobal(AuthenticationManagerBuilder auth, CustomAuthenticationProvider customAuthProvider) throws Exception {
-        auth.authenticationProvider(customAuthProvider);
+    public void configureGlobal(AuthenticationManagerBuilder auth, CustomUserDetailsService userDetailsService, PasswordEncoder passwordEncoder) throws Exception {
+        auth.userDetailsService(userDetailsService)
+                .passwordEncoder(passwordEncoder);
     }
+
+
+    @Bean
+    public AuthenticationManager authenticationManager(AuthenticationManagerBuilder auth) throws Exception {
+        return auth.userDetailsService(userDetailsService).passwordEncoder(passwordEncoder).and().build();
+    }
+
+
+//    @Bean
+//    public AuthenticationManager authManager(HttpSecurity http, PasswordEncoder passwordEncoder) throws Exception {
+//        return http.getSharedObject(AuthenticationManagerBuilder.class)
+//                .userDetailsService(userDetailsService)
+//                .passwordEncoder(passwordEncoder)
+//                .and()
+//                .build();
+//    }
+
 
 }
 
@@ -801,6 +911,7 @@ button:hover {
     text-align: center;
 }
 
+templates
 
 Account.html
 
@@ -808,14 +919,37 @@ Account.html
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Title</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account</title>
+    <link rel="stylesheet" href="/Styles.css">
 </head>
 <body>
-    <p> Hello World </p>
+
+<header>
+    <div class="header-content">
+        <span class="logo">Skynet</span>
+        <nav>
+            <ul>
+                <li><a href="/Home">Home</a></li>
+                <li> User </li>
+            </ul>
+        </nav>
+    </div>
+</header>
+
+<main>
+    <section class="hero">
+        <div class="hero-content">
+            <h1>Skynet</h1>
+            <p class="tagline">Analyze</p>
+            <button>Get Started</button>
+        </div>
+    </section>
+</main>
 </body>
 </html>
 
-templates
+
 
 Home.html
 
@@ -867,6 +1001,7 @@ signin.html
 <body>
 <div class="login-form-container">
     <h2>Log In</h2>
+    <div th:if="${errorMessage}" th:text="${errorMessage}" id="error-message" style="display: none;"></div>
     <p>New to this site? <a href="signup.html">Sign Up</a></p>
     <form id="loginForm" class="signin-form" action="/signin" method="post" th:action="@{/signin}">
         <div class="input-field">
@@ -901,6 +1036,7 @@ signin.html
 
 </body>
 </html>
+
 
 signup.html
 
@@ -1095,3 +1231,156 @@ CREATE TABLE IF NOT EXISTS users (
                        UNIQUE KEY (contact_number),
                        UNIQUE KEY (email)
 );
+
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>3.2.4</version>
+		<relativePath/> <!-- lookup parent from repository -->
+	</parent>
+	<groupId>org.springframework</groupId>
+	<artifactId>Skynet</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+	<name>Skynet</name>
+	<description>Skynet</description>
+	<properties>
+		<java.version>17</java.version>
+		<spring-cloud.version>2023.0.1</spring-cloud.version>
+	</properties>
+	<dependencies>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-jdbc</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-thymeleaf</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web-services</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-jpa</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.session</groupId>
+			<artifactId>spring-session-jdbc</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.thymeleaf.extras</groupId>
+			<artifactId>thymeleaf-extras-springsecurity6</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-devtools</artifactId>
+			<scope>runtime</scope>
+			<optional>true</optional>
+		</dependency>
+		<dependency>
+			<groupId>com.microsoft.sqlserver</groupId>
+			<artifactId>mssql-jdbc</artifactId>
+			<scope>runtime</scope>
+		</dependency>
+		<dependency>
+			<groupId>com.mysql</groupId>
+			<artifactId>mysql-connector-j</artifactId>
+			<scope>runtime</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.restdocs</groupId>
+			<artifactId>spring-restdocs-mockmvc</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>jakarta.validation</groupId>
+			<artifactId>jakarta.validation-api</artifactId>
+			<version>3.0.1</version>
+		</dependency>
+
+		<dependency>
+            <groupId>org.jetbrains</groupId>
+            <artifactId>annotations</artifactId>
+            <version>RELEASE</version>
+            <scope>compile</scope>
+        </dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
+	</dependencies>
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>org.springframework.cloud</groupId>
+				<artifactId>spring-cloud-dependencies</artifactId>
+				<version>${spring-cloud.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.asciidoctor</groupId>
+				<artifactId>asciidoctor-maven-plugin</artifactId>
+				<version>2.2.1</version>
+				<executions>
+					<execution>
+						<id>generate-docs</id>
+						<phase>prepare-package</phase>
+						<goals>
+							<goal>process-asciidoc</goal>
+						</goals>
+						<configuration>
+							<backend>html</backend>
+							<doctype>book</doctype>
+						</configuration>
+					</execution>
+				</executions>
+				<dependencies>
+					<dependency>
+						<groupId>org.springframework.restdocs</groupId>
+						<artifactId>spring-restdocs-asciidoctor</artifactId>
+						<version>${spring-restdocs.version}</version>
+					</dependency>
+				</dependencies>
+			</plugin>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+		</plugins>
+	</build>
+
+</project>

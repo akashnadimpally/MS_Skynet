@@ -39,7 +39,7 @@ public class Users {
 ////    @Value("${secretKey}")
 //    private String secretKey = "6CB3260FBAA93FC3AEC051E25B5A9EF5";
 
-    private static final Logger logger = LoggerFactory.getLogger(PasswordEncryptorDecryptor.class);
+//    private static final Logger logger = LoggerFactory.getLogger(PasswordEncryptorDecryptor.class);
 
     @Column(name="password")
     private String password;
@@ -50,13 +50,9 @@ public class Users {
     private transient String phone_code;
     private transient String phone;
 
-    @Transient
-    private PasswordEncryptorDecryptor passwordEncryptorDecryptor;
 
-    @Autowired
-    public void setPasswordEncryptorDecryptor(PasswordEncryptorDecryptor passwordEncryptorDecryptor) {
-        this.passwordEncryptorDecryptor = passwordEncryptorDecryptor;
-    }
+//    @Autowired
+//    private PasswordEncoderUtil passwordEncoderUtil;
 
 
     public Long getId() {
@@ -118,13 +114,7 @@ public class Users {
             throw new IllegalArgumentException("Password cannot be empty");
         }
 
-        try {
-            PasswordEncryptorDecryptor encryptorpasswd = new PasswordEncryptorDecryptor();
-            this.password = encryptorpasswd.encryptPassword(password);
-        } catch (Exception e) {
-            logger.error("Error setting password: ", e);
-            throw e; // Re-throw the exception to ensure it's not swallowed silently.
-        }
+        this.password = PasswordEncoderUtil.encodePassword(password);
 
     }
 

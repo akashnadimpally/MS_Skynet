@@ -9,6 +9,7 @@
 <body>
 <div class="login-form-container">
     <h2>Log In</h2>
+    <div th:if="${errorMessage}" th:text="${errorMessage}" id="error-message" style="display: none;"></div>
     <p>New to this site? <a href="signup.html">Sign Up</a></p>
     <form id="loginForm" class="signin-form" action="/signin" method="post" th:action="@{/signin}">
         <div class="input-field">
