@@ -1,52 +1,5 @@
 src/main/java/org/springframework/skynet
 
-CustomAuthenticationProvider.java
-
-package org.springframework.skynet;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.authentication.BadCredentialsException;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.authentication.AuthenticationProvider;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.AuthenticationException;
-import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.stereotype.Component;
-
-@Component
-public class CustomAuthenticationProvider implements AuthenticationProvider {
-
-    private static final Logger logger = LoggerFactory.getLogger(CustomAuthenticationProvider.class);
-
-    @Autowired
-    private CustomUserDetailsService userDetailsService;
-
-    @Autowired
-    private PasswordEncoderUtil passwordEncoderUtil;
-
-    @Override
-    public Authentication authenticate(Authentication authentication) throws AuthenticationException {
-        String username = authentication.getName();
-        String rawPassword = authentication.getCredentials().toString();
-
-        UserDetails userDetails = userDetailsService.loadUserByUsername(username);
-
-        String storedPassword = userDetails.getPassword();
-
-        if (!passwordEncoderUtil.matches(rawPassword, storedPassword)) {
-            throw new BadCredentialsException("Invalid username or password");
-        }
-
-        return new UsernamePasswordAuthenticationToken(username, null, userDetails.getAuthorities());
-    }
-
-    @Override
-    public boolean supports(Class<?> authentication) {
-        return UsernamePasswordAuthenticationToken.class.isAssignableFrom(authentication);
-    }
-}
 
 CustomUserDetails.java
 
@@ -108,28 +61,38 @@ CustomUserDetailsService.java
 package org.springframework.skynet;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
 import java.util.Optional;
 
 @Service
 public class CustomUserDetailsService implements UserDetailsService {
 
+    private final UsersRepository usersRepository;
+
     @Autowired
-    private UsersRepository usersRepository;
+    public CustomUserDetailsService(UsersRepository usersRepository) {
+        this.usersRepository = usersRepository;
+    }
+
 
     @Override
-    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
-        Optional<Users> userOptional = usersRepository.findByEmail(username);
-        if (!userOptional.isPresent()) {
+    public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
+        Optional<Users> userOptional = usersRepository.findByEmail(email);
+        if (userOptional.isEmpty()) {
             throw new UsernameNotFoundException("User not found");
         }
         Users user = userOptional.get();
         return new CustomUserDetails(user);
     }
+
 }
+
 
 ErrorResponse.java
 
@@ -162,6 +125,7 @@ public class ErrorResponse {
         this.details = details;
     }
 }
+
 
 
 GlobalExceptionHandler.java
@@ -206,6 +170,7 @@ MainController.java
 package org.springframework.skynet;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -224,24 +189,24 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import org.springframework.security.core.AuthenticationException;
 
-import org.springframework.skynet.PasswordEncryptorDecryptor;
 
 @Controller
 public class MainController {
 
     private static final Logger logger = LoggerFactory.getLogger(MainController.class);
 
-    @Autowired
+
     private final UsersService usersService;
 
-    @Autowired
+
     private final PasswordEncoderUtil passwordEncoderUtil;
 
+
+    private final AuthenticationManager authenticationManager;
+
+
     @Autowired
-    private AuthenticationManager authenticationManager;
-
-
-    public MainController(UsersService usersService, PasswordEncoderUtil passwordEncoderUtil, AuthenticationManager authenticationManager) {
+    public MainController(UsersService usersService, PasswordEncoderUtil passwordEncoderUtil, @Lazy AuthenticationManager authenticationManager) {
         this.usersService = usersService;
         this.passwordEncoderUtil = passwordEncoderUtil;
         this.authenticationManager = authenticationManager;
@@ -363,8 +328,7 @@ public class PasswordEncoderUtil {
 
     }
 
-
-    public String encodePassword(String password) {
+    public static String encodePassword(String password) {
         BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
         return passwordEncoder.encode(password);
     }
@@ -374,6 +338,7 @@ public class PasswordEncoderUtil {
         return passwordEncoder.matches(rawPassword, encodedPassword);
     }
 }
+
 
 
 SkynetApplication.java
@@ -432,16 +397,8 @@ public class Users {
     @Column(name = "email", unique = true)
     private String email;
 
-//    private String phoneCode;
-//    private Long phone;
-
     @Column(name="country")
     private String country;
-
-////    @Value("${secretKey}")
-//    private String secretKey = "6CB3260FBAA93FC3AEC051E25B5A9EF5";
-
-//    private static final Logger logger = LoggerFactory.getLogger(PasswordEncryptorDecryptor.class);
 
     @Column(name="password")
     private String password;
@@ -515,8 +472,8 @@ public class Users {
         if (password == null || password.isEmpty()) {
             throw new IllegalArgumentException("Password cannot be empty");
         }
-        PasswordEncoderUtil passwordEncoderUtil = new PasswordEncoderUtil();
-        this.password = passwordEncoderUtil.encodePassword(password);
+
+        this.password = PasswordEncoderUtil.encodePassword(password);
 
     }
 
@@ -583,16 +540,13 @@ public class UsersService {
 
 }
 
-
-
 WebSecurityConfig.java
 
 package org.springframework.skynet;
 
 import org.jetbrains.annotations.NotNull;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.*;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
@@ -611,7 +565,6 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-//import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -622,11 +575,14 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 @EnableWebSecurity
 public class WebSecurityConfig {
 
-    private final UserDetailsService userDetailsService;
-    private final PasswordEncoder passwordEncoder;
 
-    public WebSecurityConfig(UserDetailsService userDetailsService, PasswordEncoder passwordEncoder) {
-        this.userDetailsService = userDetailsService;
+    private final CustomUserDetailsService customUserDetailsService;
+    private final PasswordEncoder passwordEncoder;
+//    private final PasswordEncoder passwordEncoder;
+
+    @Autowired
+    public WebSecurityConfig(@Lazy CustomUserDetailsService customUserDetailsService, PasswordEncoder passwordEncoder) {
+        this.customUserDetailsService = customUserDetailsService;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -636,13 +592,14 @@ public class WebSecurityConfig {
     }
 
 
+
     @Bean
     public SecurityFilterChain filterChain(@NotNull HttpSecurity http) throws Exception {
         http
                 .csrf().csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
                 .and()
                 .authorizeHttpRequests(authz -> authz
-                        .requestMatchers("/", "/home", "/signup", "/success", "/Styles.css").permitAll()
+                        .requestMatchers("/", "/home", "/signup", "/success", "/Styles.css", "/Account").permitAll()
                         .anyRequest().authenticated()
                 )
                 .formLogin(form -> form
@@ -653,38 +610,20 @@ public class WebSecurityConfig {
                         .permitAll()
                 )
                 .logout()
-                    .logoutUrl("/perform_logout")
-                    .logoutSuccessUrl("/signin")
-                    .invalidateHttpSession(true)
-                    .deleteCookies("JSESSIONID")
-                    .permitAll();
+                .logoutUrl("/perform_logout")
+                .logoutSuccessUrl("/signin")
+                .invalidateHttpSession(true)
+                .deleteCookies("JSESSIONID")
+                .permitAll();
         return http.build();
     }
 
-
     @Autowired
-    public void configureGlobal(AuthenticationManagerBuilder auth, CustomUserDetailsService userDetailsService, PasswordEncoder passwordEncoder) throws Exception {
-        auth.userDetailsService(userDetailsService)
-                .passwordEncoder(passwordEncoder);
+    public void configure(AuthenticationManagerBuilder auth) throws Exception {
+        auth
+                .userDetailsService(customUserDetailsService)
+                .passwordEncoder(passwordEncoder());
     }
-
-
-    @Bean
-    public AuthenticationManager authenticationManager(AuthenticationManagerBuilder auth) throws Exception {
-        return auth.userDetailsService(userDetailsService).passwordEncoder(passwordEncoder).and().build();
-    }
-
-
-//    @Bean
-//    public AuthenticationManager authManager(HttpSecurity http, PasswordEncoder passwordEncoder) throws Exception {
-//        return http.getSharedObject(AuthenticationManagerBuilder.class)
-//                .userDetailsService(userDetailsService)
-//                .passwordEncoder(passwordEncoder)
-//                .and()
-//                .build();
-//    }
-
-
 }
 
 
@@ -1384,3 +1323,40 @@ CREATE TABLE IF NOT EXISTS users (
 	</build>
 
 </project>
+
+
+
+|-- pom.xml
+|-- src/
+|   |-- .DS_Store
+|   |-- main/
+|   |   |-- .DS_Store
+|   |   |-- java/
+|   |   |   `-- org/
+|   |   |   |   `-- springframework/
+|   |   |   |   |   `-- skynet/
+|   |   |   |   |   |   |-- CustomUserDetails.java
+|   |   |   |   |   |   |-- CustomUserDetailsService.java
+|   |   |   |   |   |   |-- ErrorResponse.java
+|   |   |   |   |   |   |-- GlobalExceptionHandler.java
+|   |   |   |   |   |   |-- MainController.java
+|   |   |   |   |   |   |-- PasswordEncoderUtil.java
+|   |   |   |   |   |   |-- SkynetApplication.java
+|   |   |   |   |   |   |-- Users.java
+|   |   |   |   |   |   |-- UsersRepository.java
+|   |   |   |   |   |   |-- UsersService.java
+|   |   |   |   |   |   `-- WebSecurityConfig.java
+|   |   `-- resources/
+|   |   |   |-- application.properties
+|   |   |   |-- schema.sql
+|   |   |   |-- static/
+|   |   |   |   |-- JS/
+|   |   |   |   |   |-- login.js
+|   |   |   |   |   `-- signup.js
+|   |   |   |   `-- Styles.css
+|   |   |   `-- templates/
+|   |   |   |   |-- Account.html
+|   |   |   |   |-- Home.html
+|   |   |   |   |-- Success.html
+|   |   |   |   |-- signin.html
+|   |   |   |   `-- signup.html

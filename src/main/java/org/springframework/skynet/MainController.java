@@ -1,6 +1,7 @@
 package org.springframework.skynet;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -35,7 +36,8 @@ public class MainController {
     private final AuthenticationManager authenticationManager;
 
 
-    public MainController(UsersService usersService, PasswordEncoderUtil passwordEncoderUtil, AuthenticationManager authenticationManager) {
+    @Autowired
+    public MainController(UsersService usersService, PasswordEncoderUtil passwordEncoderUtil, @Lazy AuthenticationManager authenticationManager) {
         this.usersService = usersService;
         this.passwordEncoderUtil = passwordEncoderUtil;
         this.authenticationManager = authenticationManager;

@@ -13,12 +13,12 @@ import java.util.Optional;
 @Service
 public class CustomUserDetailsService implements UserDetailsService {
 
+    private final UsersRepository usersRepository;
+
     @Autowired
-    private UsersRepository usersRepository;
-
-//    @Override
-//    public User user
-
+    public CustomUserDetailsService(UsersRepository usersRepository) {
+        this.usersRepository = usersRepository;
+    }
 
 
     @Override
@@ -28,8 +28,8 @@ public class CustomUserDetailsService implements UserDetailsService {
             throw new UsernameNotFoundException("User not found");
         }
         Users user = userOptional.get();
-        return new org.springframework.security.core.userdetails.User(user.getEmail(), user.getPassword(), new ArrayList<>());
-
+        return new CustomUserDetails(user);
     }
+
 }
 
