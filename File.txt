@@ -170,6 +170,7 @@ MainController.java
 package org.springframework.skynet;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -196,9 +197,11 @@ public class MainController {
     private static final Logger logger = LoggerFactory.getLogger(MainController.class);
 
 
+    @Autowired
     private final UsersService usersService;
 
 
+    @Autowired
     private final PasswordEncoderUtil passwordEncoderUtil;
 
 
@@ -247,7 +250,7 @@ public class MainController {
             }
 
             // Hash the password before saving
-            String hashedPassword = passwordEncoderUtil.encodePassword(user.getPassword());
+            String hashedPassword = PasswordEncoderUtil.encodePassword(user.getPassword());
             user.setPassword(hashedPassword);
 
             usersService.saveUser(user);
@@ -531,14 +534,9 @@ public class UsersService {
         logger.info("User saved with ID: {}", user.getId());
     }
 
-//    public void registerUser(Users user) throws Exception {
-//        String encodedPassword = passwordEncoderUtil.encodePassword(user.getPassword());
-//        user.setPassword(encodedPassword);
-//        usersRepository.save(user);
-//    }
-
-
 }
+
+
 
 WebSecurityConfig.java
 
@@ -576,14 +574,19 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 public class WebSecurityConfig {
 
 
-    private final CustomUserDetailsService customUserDetailsService;
-    private final PasswordEncoder passwordEncoder;
+    @Autowired
+    private CustomUserDetailsService customUserDetailsService;
 //    private final PasswordEncoder passwordEncoder;
 
-    @Autowired
-    public WebSecurityConfig(@Lazy CustomUserDetailsService customUserDetailsService, PasswordEncoder passwordEncoder) {
-        this.customUserDetailsService = customUserDetailsService;
-        this.passwordEncoder = passwordEncoder;
+//    @Autowired
+//    public WebSecurityConfig(@Lazy CustomUserDetailsService customUserDetailsService, PasswordEncoder passwordEncoder) {
+//        this.customUserDetailsService = customUserDetailsService;
+//        this.passwordEncoder = passwordEncoder;
+//    }
+
+    @Bean
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration authenticationConfiguration) throws Exception {
+        return authenticationConfiguration.getAuthenticationManager();
     }
 
     @Bean
@@ -625,6 +628,7 @@ public class WebSecurityConfig {
                 .passwordEncoder(passwordEncoder());
     }
 }
+
 
 
 resources

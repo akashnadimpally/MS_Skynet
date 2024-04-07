@@ -1,6 +1,7 @@
 package org.springframework.skynet;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -27,9 +28,11 @@ public class MainController {
     private static final Logger logger = LoggerFactory.getLogger(MainController.class);
 
 
+    @Autowired
     private final UsersService usersService;
 
 
+    @Autowired
     private final PasswordEncoderUtil passwordEncoderUtil;
 
 
@@ -78,7 +81,7 @@ public class MainController {
             }
 
             // Hash the password before saving
-            String hashedPassword = passwordEncoderUtil.encodePassword(user.getPassword());
+            String hashedPassword = PasswordEncoderUtil.encodePassword(user.getPassword());
             user.setPassword(hashedPassword);
 
             usersService.saveUser(user);

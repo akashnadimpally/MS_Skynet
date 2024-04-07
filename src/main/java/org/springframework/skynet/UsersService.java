@@ -26,12 +26,6 @@ public class UsersService {
         logger.info("User saved with ID: {}", user.getId());
     }
 
-//    public void registerUser(Users user) throws Exception {
-//        String encodedPassword = passwordEncoderUtil.encodePassword(user.getPassword());
-//        user.setPassword(encodedPassword);
-//        usersRepository.save(user);
-//    }
-
 
 }
 
