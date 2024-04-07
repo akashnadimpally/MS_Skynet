@@ -256,7 +256,8 @@ public class MainController {
             }
 
             // Hash the password before saving
-            String hashedPassword = PasswordEncoderUtil.encodePassword(user.getPassword());
+            // Use the autowired PasswordEncoderUtil instance
+            String hashedPassword = passwordEncoderUtil.encode(user.getPassword());
             user.setPassword(hashedPassword);
 
             usersService.saveUser(user);
@@ -301,31 +302,48 @@ public class MainController {
                                @RequestParam("password") String password,
                                HttpServletRequest request, RedirectAttributes redirectAttributes) {
 
+        logger.info("Attempting to login with email: {}", email);
         try {
             Optional<Users> userOptional = usersRepository.findByEmail(email);
-            logger.info("Details usersRepository: {}", userOptional);
-            if (userOptional.isPresent() && passwordEncoderUtil.matches(password, userOptional.get().getPassword())) {
-                // Manually set authentication
-                UsernamePasswordAuthenticationToken authReq
-                        = new UsernamePasswordAuthenticationToken(email, password);
-                Authentication auth = authenticationManager.authenticate(authReq);
+            if (userOptional.isPresent()) {
+                Users user = userOptional.get();
+                logger.info("User found with email: {}", email);
 
-                SecurityContextHolder.getContext().setAuthentication(auth);
-                return "redirect:/Account";
+                logger.info("Password: {}", password);
+
+//                logger.info("User GetPassword: {}", user.getPassword());
+
+                if (passwordEncoderUtil.matches(password, user.getPassword())) {
+                    logger.info("Password matches for user: {}", email);
+                    // Manually set authentication
+                    UsernamePasswordAuthenticationToken authReq = new UsernamePasswordAuthenticationToken(email, password);
+                    Authentication auth = authenticationManager.authenticate(authReq);
+
+                    SecurityContextHolder.getContext().setAuthentication(auth);
+                    logger.info("Authentication successful for user: {}", email);
+                    return "redirect:/Account";
+                } else {
+                    // Password does not match
+                    logger.warn("Password mismatch for user: {}", email);
+                    redirectAttributes.addFlashAttribute("loginError", true);
+                    return "redirect:/signin";
+                }
             } else {
-                // User not found or password does not match
+                // User not found
+                logger.warn("No user found with email: {}", email);
                 redirectAttributes.addFlashAttribute("loginError", true);
                 return "redirect:/signin";
             }
         } catch (Exception e) {
-            logger.error("Login Error ", e);
+            logger.error("Login error for user: {}, error: {}", email, e.getMessage(), e);
             redirectAttributes.addFlashAttribute("errorMessage", "An error occurred. Please try again.");
             return "redirect:/signin";
         }
-
     }
 
 }
+
+
 
 
 
@@ -335,25 +353,25 @@ PasswordEncoderUtil.java
 package org.springframework.skynet;
 
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 @Component
-public class PasswordEncoderUtil {
+public class PasswordEncoderUtil implements PasswordEncoder {
 
-    public PasswordEncoderUtil() {
+    private final BCryptPasswordEncoder bCryptPasswordEncoder = new BCryptPasswordEncoder();
 
+    @Override
+    public String encode(CharSequence rawPassword) {
+        return bCryptPasswordEncoder.encode(rawPassword);
     }
 
-    public static String encodePassword(String password) {
-        BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
-        return passwordEncoder.encode(password);
-    }
-
-    public boolean matches(String rawPassword, String encodedPassword) {
-        BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
-        return passwordEncoder.matches(rawPassword, encodedPassword);
+    @Override
+    public boolean matches(CharSequence rawPassword, String encodedPassword) {
+        return bCryptPasswordEncoder.matches(rawPassword, encodedPassword);
     }
 }
+
 
 
 
@@ -523,6 +541,7 @@ package org.springframework.skynet;
 
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -541,13 +560,18 @@ public class UsersService {
 
 
     @Transactional
-    public void saveUser(Users user) {
+    public void saveUser(Users user) throws Exception {
         logger.info("Saving user: {}", user.getEmail());
+        String encodedPassword = passwordEncoderUtil.encode(user.getPassword());
+        user.setPassword(encodedPassword);
         usersRepository.save(user);
         logger.info("User saved with ID: {}", user.getId());
     }
 
+
 }
+
+
 
 
 
@@ -564,6 +588,7 @@ import org.springframework.security.config.annotation.authentication.builders.Au
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfiguration;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.annotation.web.configurers.LogoutConfigurer;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.web.SecurityFilterChain;
@@ -602,10 +627,8 @@ public class WebSecurityConfig {
         return authenticationConfiguration.getAuthenticationManager();
     }
 
-    @Bean
-    public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
-    }
+    @Autowired
+    private PasswordEncoderUtil passwordEncoderUtil;
 
 
 
@@ -625,12 +648,13 @@ public class WebSecurityConfig {
                         .failureUrl("/signin?error=true")
                         .permitAll()
                 )
-                .logout()
+                .logout(logout -> logout
                 .logoutUrl("/perform_logout")
                 .logoutSuccessUrl("/signin")
                 .invalidateHttpSession(true)
                 .deleteCookies("JSESSIONID")
-                .permitAll();
+                .permitAll())
+                .apply(new CustomConfigurer());
         return http.build();
     }
 
@@ -638,9 +662,14 @@ public class WebSecurityConfig {
     public void configure(AuthenticationManagerBuilder auth) throws Exception {
         auth
                 .userDetailsService(customUserDetailsService)
-                .passwordEncoder(passwordEncoder());
+                .passwordEncoder(passwordEncoderUtil);
     }
+
+    public static class CustomConfigurer extends AbstractHttpConfigurer<CustomConfigurer, HttpSecurity> {
+    }
+
 }
+
 
 
 

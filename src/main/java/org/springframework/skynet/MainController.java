@@ -88,8 +88,8 @@ public class MainController {
 
             // Hash the password before saving
             // Use the autowired PasswordEncoderUtil instance
-            String hashedPassword = passwordEncoderUtil.encode(user.getPassword());
-            user.setPassword(hashedPassword);
+//            String hashedPassword = passwordEncoderUtil.encode(user.getPassword());
+//            user.setPassword(hashedPassword);
 
             usersService.saveUser(user);
             request.getSession().setAttribute("registrationCompleted", true);
@@ -140,6 +140,10 @@ public class MainController {
                 Users user = userOptional.get();
                 logger.info("User found with email: {}", email);
 
+                logger.info("Password: {}", password);
+
+//                logger.info("User GetPassword: {}", user.getPassword());
+
                 if (passwordEncoderUtil.matches(password, user.getPassword())) {
                     logger.info("Password matches for user: {}", email);
                     // Manually set authentication
@@ -168,27 +172,6 @@ public class MainController {
         }
     }
 
-
-
-
-//        try {
-//            logger.info("Session ID before authentication: {}", request.getSession().getId());
-//            Authentication authResult = authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, password));
-//            SecurityContextHolder.getContext().setAuthentication(authResult);
-//            logger.info("Session ID after authentication: {}", request.getSession().getId());
-//            logger.info("Authentication: {}", authResult);
-//            return "redirect:/Account";
-////            logger.info("Login Username: {}", email);
-////            authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, password));
-////            return "redirect:/Account";
-//        } catch (AuthenticationException e) {
-//            redirectAttributes.addFlashAttribute("loginError", true);
-//            return "redirect:/signin";
-//        } catch (Exception e) {
-//            logger.error("Login Error ", e);
-//            redirectAttributes.addFlashAttribute("errorMessage", "An error occurred. Please try again.");
-//            return "redirect:/signin";
-//        }
-    }
-
 }
+
+

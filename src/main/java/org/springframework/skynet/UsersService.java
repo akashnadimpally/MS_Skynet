@@ -17,13 +17,13 @@ public class UsersService {
     private UsersRepository usersRepository;
 
     @Autowired
-    private PasswordEncoder passwordEncoder;
+    private PasswordEncoderUtil passwordEncoderUtil;
 
 
     @Transactional
     public void saveUser(Users user) throws Exception {
         logger.info("Saving user: {}", user.getEmail());
-        String encodedPassword = passwordEncoder.encode(user.getPassword());
+        String encodedPassword = passwordEncoderUtil.encode(user.getPassword());
         user.setPassword(encodedPassword);
         usersRepository.save(user);
         logger.info("User saved with ID: {}", user.getId());
