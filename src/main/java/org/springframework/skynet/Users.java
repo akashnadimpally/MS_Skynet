@@ -114,7 +114,7 @@ public class Users {
             throw new IllegalArgumentException("Password cannot be empty");
         }
 
-        this.password = PasswordEncoderUtil.encodePassword(password);
+        this.password = password;
 
     }
 

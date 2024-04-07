@@ -9,6 +9,7 @@ import org.springframework.security.config.annotation.authentication.builders.Au
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfiguration;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.annotation.web.configurers.LogoutConfigurer;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.web.SecurityFilterChain;
@@ -47,10 +48,8 @@ public class WebSecurityConfig {
         return authenticationConfiguration.getAuthenticationManager();
     }
 
-    @Bean
-    public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
-    }
+    @Autowired
+    private PasswordEncoderUtil passwordEncoderUtil;
 
 
 
@@ -70,12 +69,13 @@ public class WebSecurityConfig {
                         .failureUrl("/signin?error=true")
                         .permitAll()
                 )
-                .logout()
+                .logout(logout -> logout
                 .logoutUrl("/perform_logout")
                 .logoutSuccessUrl("/signin")
                 .invalidateHttpSession(true)
                 .deleteCookies("JSESSIONID")
-                .permitAll();
+                .permitAll())
+                .apply(new CustomConfigurer());
         return http.build();
     }
 
@@ -83,6 +83,10 @@ public class WebSecurityConfig {
     public void configure(AuthenticationManagerBuilder auth) throws Exception {
         auth
                 .userDetailsService(customUserDetailsService)
-                .passwordEncoder(passwordEncoder());
+                .passwordEncoder(passwordEncoderUtil);
     }
+
+    public static class CustomConfigurer extends AbstractHttpConfigurer<CustomConfigurer, HttpSecurity> {
+    }
+
 }

@@ -21,6 +21,8 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import org.springframework.security.core.AuthenticationException;
 
+import java.util.Optional;
+
 
 @Controller
 public class MainController {
@@ -31,6 +33,9 @@ public class MainController {
     @Autowired
     private final UsersService usersService;
 
+    @Autowired
+    private final UsersRepository usersRepository;
+
 
     @Autowired
     private final PasswordEncoderUtil passwordEncoderUtil;
@@ -40,8 +45,9 @@ public class MainController {
 
 
     @Autowired
-    public MainController(UsersService usersService, PasswordEncoderUtil passwordEncoderUtil, @Lazy AuthenticationManager authenticationManager) {
+    public MainController(UsersService usersService, UsersRepository usersRepository, PasswordEncoderUtil passwordEncoderUtil, @Lazy AuthenticationManager authenticationManager) {
         this.usersService = usersService;
+        this.usersRepository = usersRepository;
         this.passwordEncoderUtil = passwordEncoderUtil;
         this.authenticationManager = authenticationManager;
     }
@@ -81,7 +87,8 @@ public class MainController {
             }
 
             // Hash the password before saving
-            String hashedPassword = PasswordEncoderUtil.encodePassword(user.getPassword());
+            // Use the autowired PasswordEncoderUtil instance
+            String hashedPassword = passwordEncoderUtil.encode(user.getPassword());
             user.setPassword(hashedPassword);
 
             usersService.saveUser(user);
@@ -125,24 +132,63 @@ public class MainController {
     public String processLogin(@RequestParam("email") String email,
                                @RequestParam("password") String password,
                                HttpServletRequest request, RedirectAttributes redirectAttributes) {
+
+        logger.info("Attempting to login with email: {}", email);
         try {
-            logger.info("Session ID before authentication: {}", request.getSession().getId());
-            Authentication authResult = authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, password));
-            SecurityContextHolder.getContext().setAuthentication(authResult);
-            logger.info("Session ID after authentication: {}", request.getSession().getId());
-            logger.info("Authentication: {}", authResult);
-            return "redirect:/Account";
-//            logger.info("Login Username: {}", email);
-//            authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, password));
-//            return "redirect:/Account";
-        } catch (AuthenticationException e) {
-            redirectAttributes.addFlashAttribute("loginError", true);
-            return "redirect:/signin";
+            Optional<Users> userOptional = usersRepository.findByEmail(email);
+            if (userOptional.isPresent()) {
+                Users user = userOptional.get();
+                logger.info("User found with email: {}", email);
+
+                if (passwordEncoderUtil.matches(password, user.getPassword())) {
+                    logger.info("Password matches for user: {}", email);
+                    // Manually set authentication
+                    UsernamePasswordAuthenticationToken authReq = new UsernamePasswordAuthenticationToken(email, password);
+                    Authentication auth = authenticationManager.authenticate(authReq);
+
+                    SecurityContextHolder.getContext().setAuthentication(auth);
+                    logger.info("Authentication successful for user: {}", email);
+                    return "redirect:/Account";
+                } else {
+                    // Password does not match
+                    logger.warn("Password mismatch for user: {}", email);
+                    redirectAttributes.addFlashAttribute("loginError", true);
+                    return "redirect:/signin";
+                }
+            } else {
+                // User not found
+                logger.warn("No user found with email: {}", email);
+                redirectAttributes.addFlashAttribute("loginError", true);
+                return "redirect:/signin";
+            }
         } catch (Exception e) {
-            logger.error("Login Error ", e);
+            logger.error("Login error for user: {}, error: {}", email, e.getMessage(), e);
             redirectAttributes.addFlashAttribute("errorMessage", "An error occurred. Please try again.");
             return "redirect:/signin";
         }
+    }
+
+
+
+
+//        try {
+//            logger.info("Session ID before authentication: {}", request.getSession().getId());
+//            Authentication authResult = authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, password));
+//            SecurityContextHolder.getContext().setAuthentication(authResult);
+//            logger.info("Session ID after authentication: {}", request.getSession().getId());
+//            logger.info("Authentication: {}", authResult);
+//            return "redirect:/Account";
+////            logger.info("Login Username: {}", email);
+////            authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, password));
+////            return "redirect:/Account";
+//        } catch (AuthenticationException e) {
+//            redirectAttributes.addFlashAttribute("loginError", true);
+//            return "redirect:/signin";
+//        } catch (Exception e) {
+//            logger.error("Login Error ", e);
+//            redirectAttributes.addFlashAttribute("errorMessage", "An error occurred. Please try again.");
+//            return "redirect:/signin";
+//        }
     }
 
 }

@@ -190,6 +190,8 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import org.springframework.security.core.AuthenticationException;
 
+import java.util.Optional;
+
 
 @Controller
 public class MainController {
@@ -200,6 +202,9 @@ public class MainController {
     @Autowired
     private final UsersService usersService;
 
+    @Autowired
+    private final UsersRepository usersRepository;
+
 
     @Autowired
     private final PasswordEncoderUtil passwordEncoderUtil;
@@ -209,8 +214,9 @@ public class MainController {
 
 
     @Autowired
-    public MainController(UsersService usersService, PasswordEncoderUtil passwordEncoderUtil, @Lazy AuthenticationManager authenticationManager) {
+    public MainController(UsersService usersService, UsersRepository usersRepository, PasswordEncoderUtil passwordEncoderUtil, @Lazy AuthenticationManager authenticationManager) {
         this.usersService = usersService;
+        this.usersRepository = usersRepository;
         this.passwordEncoderUtil = passwordEncoderUtil;
         this.authenticationManager = authenticationManager;
     }
@@ -294,27 +300,34 @@ public class MainController {
     public String processLogin(@RequestParam("email") String email,
                                @RequestParam("password") String password,
                                HttpServletRequest request, RedirectAttributes redirectAttributes) {
+
         try {
-            logger.info("Session ID before authentication: {}", request.getSession().getId());
-            Authentication authResult = authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, password));
-            SecurityContextHolder.getContext().setAuthentication(authResult);
-            logger.info("Session ID after authentication: {}", request.getSession().getId());
-            logger.info("Authentication: {}", authResult);
-            return "redirect:/Account";
-//            logger.info("Login Username: {}", email);
-//            authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, password));
-//            return "redirect:/Account";
-        } catch (AuthenticationException e) {
-            redirectAttributes.addFlashAttribute("loginError", true);
-            return "redirect:/signin";
+            Optional<Users> userOptional = usersRepository.findByEmail(email);
+            logger.info("Details usersRepository: {}", userOptional);
+            if (userOptional.isPresent() && passwordEncoderUtil.matches(password, userOptional.get().getPassword())) {
+                // Manually set authentication
+                UsernamePasswordAuthenticationToken authReq
+                        = new UsernamePasswordAuthenticationToken(email, password);
+                Authentication auth = authenticationManager.authenticate(authReq);
+
+                SecurityContextHolder.getContext().setAuthentication(auth);
+                return "redirect:/Account";
+            } else {
+                // User not found or password does not match
+                redirectAttributes.addFlashAttribute("loginError", true);
+                return "redirect:/signin";
+            }
         } catch (Exception e) {
             logger.error("Login Error ", e);
             redirectAttributes.addFlashAttribute("errorMessage", "An error occurred. Please try again.");
             return "redirect:/signin";
         }
+
     }
 
 }
+
+
 
 
 PasswordEncoderUtil.java
