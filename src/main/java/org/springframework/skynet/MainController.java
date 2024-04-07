@@ -1,9 +1,13 @@
 package org.springframework.skynet;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Controller;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,21 +21,37 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import org.springframework.security.core.AuthenticationException;
 
-import org.springframework.skynet.PasswordEncryptorDecryptor;
+import java.util.Optional;
+
 
 @Controller
 public class MainController {
 
     private static final Logger logger = LoggerFactory.getLogger(MainController.class);
 
-    @Autowired
-    private UsersService usersService;
 
     @Autowired
-    private PasswordEncryptorDecryptor passwordEncryptorDecryptor;
+    private final UsersService usersService;
 
     @Autowired
-    private AuthenticationManager authenticationManager;
+    private final UsersRepository usersRepository;
+
+
+    @Autowired
+    private final PasswordEncoderUtil passwordEncoderUtil;
+
+
+    private final AuthenticationManager authenticationManager;
+
+
+    @Autowired
+    public MainController(UsersService usersService, UsersRepository usersRepository, PasswordEncoderUtil passwordEncoderUtil, @Lazy AuthenticationManager authenticationManager) {
+        this.usersService = usersService;
+        this.usersRepository = usersRepository;
+        this.passwordEncoderUtil = passwordEncoderUtil;
+        this.authenticationManager = authenticationManager;
+    }
+
 
     @GetMapping({"/home", "/", "/Home"})
     protected String home() {
@@ -66,18 +86,16 @@ public class MainController {
                 return "redirect:/signup";
             }
 
-            // Temporarily set the password without encryption for testing
-            // user.setPassword(user.getPassword());
-
-            // Encrypt the password before saving
-            String encryptedPassword = passwordEncryptorDecryptor.encryptPassword(user.getPassword());
-            user.setPassword(encryptedPassword);
+            // Hash the password before saving
+            // Use the autowired PasswordEncoderUtil instance
+//            String hashedPassword = passwordEncoderUtil.encode(user.getPassword());
+//            user.setPassword(hashedPassword);
 
             usersService.saveUser(user);
             request.getSession().setAttribute("registrationCompleted", true);
-            logger.info("User saved successfully");
             logger.info("User saved successfully with ID: {}", user.getId());
             return "redirect:/success";
+
         } catch (DataIntegrityViolationException e) {
             logger.error("Duplicate entry: " + e.getMessage());
             redirectAttributes.addFlashAttribute("errorMessage", "Duplicate entry detected. Please try again with different credentials.");
@@ -114,14 +132,46 @@ public class MainController {
     public String processLogin(@RequestParam("email") String email,
                                @RequestParam("password") String password,
                                HttpServletRequest request, RedirectAttributes redirectAttributes) {
+
+        logger.info("Attempting to login with email: {}", email);
         try {
-//            logger.error();
-            authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, password));
-            return "redirect:/Account";
-        } catch (AuthenticationException e) {
-            redirectAttributes.addFlashAttribute("loginError", true);
+            Optional<Users> userOptional = usersRepository.findByEmail(email);
+            if (userOptional.isPresent()) {
+                Users user = userOptional.get();
+                logger.info("User found with email: {}", email);
+
+                logger.info("Password: {}", password);
+
+//                logger.info("User GetPassword: {}", user.getPassword());
+
+                if (passwordEncoderUtil.matches(password, user.getPassword())) {
+                    logger.info("Password matches for user: {}", email);
+                    // Manually set authentication
+                    UsernamePasswordAuthenticationToken authReq = new UsernamePasswordAuthenticationToken(email, password);
+                    Authentication auth = authenticationManager.authenticate(authReq);
+
+                    SecurityContextHolder.getContext().setAuthentication(auth);
+                    logger.info("Authentication successful for user: {}", email);
+                    return "redirect:/Account";
+                } else {
+                    // Password does not match
+                    logger.warn("Password mismatch for user: {}", email);
+                    redirectAttributes.addFlashAttribute("loginError", true);
+                    return "redirect:/signin";
+                }
+            } else {
+                // User not found
+                logger.warn("No user found with email: {}", email);
+                redirectAttributes.addFlashAttribute("loginError", true);
+                return "redirect:/signin";
+            }
+        } catch (Exception e) {
+            logger.error("Login error for user: {}, error: {}", email, e.getMessage(), e);
+            redirectAttributes.addFlashAttribute("errorMessage", "An error occurred. Please try again.");
             return "redirect:/signin";
         }
     }
 
 }
+
+
