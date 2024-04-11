@@ -13,16 +13,6 @@
     <!-- Add this at the top of your body tag -->
     <div th:if="${errorMessage}" th:text="${errorMessage}" id="error-message" style="display: none;"></div>
 
-<!--    <script>-->
-<!--        window.onload = function() {-->
-<!--            var errorMessage = document.getElementById("error-message").textContent;-->
-<!--            if (errorMessage) {-->
-<!--                alert(errorMessage);-->
-<!--            }-->
-<!--        };-->
-<!--    </script>-->
-
-
     <form id="signupForm" class="signup-form" action="/signup" method="post" th:action="@{/signup}">
         <input type="text" name="firstName" id="firstName" placeholder="First name" required>
         <input type="text" name="lastName" id="lastName" placeholder="Last name" required>
@@ -60,17 +50,10 @@
         <div class="g-recaptcha" data-sitekey="your_site_key"></div>
         <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}" />
         <button type="submit">Sign Up</button>
-        <p>Already a member? <a href="Login.html">Log In</a></p>
+        <p>Already a member? <a href="signin.html">Log In</a></p>
     </form>
 </div>
 <script>
-    window.onload = function() {
-        var errorMessage = document.getElementById("error-message").textContent;
-        if (errorMessage) {
-            alert(errorMessage);
-        }
-    };
-
     document.addEventListener('DOMContentLoaded', function() {
         const password = document.getElementById('password');
         const confirmPassword = document.getElementById('confirm_password');
@@ -88,15 +71,14 @@
         confirmPassword.onkeyup = validatePassword;
 
         form.onsubmit = function(event) {
-            event.preventDefault();
-            if (password.value === confirmPassword.value) {
-                this.submit();
-            } else {
+            if (password.value !== confirmPassword.value) {
+                event.preventDefault();
                 alert("Passwords do not match. Please try again.");
             }
         };
     });
 </script>
+
 <!--<script src="https://www.google.com/recaptcha/api.js" async defer></script>-->
 </body>
 </html>

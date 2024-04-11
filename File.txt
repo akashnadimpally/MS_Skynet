@@ -1,0 +1,1408 @@
+src/main/java/org/springframework/skynet
+
+
+CustomUserDetails.java
+
+package org.springframework.skynet;
+
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
+
+import java.util.Collection;
+
+public class CustomUserDetails implements UserDetails {
+
+    private String username;
+    private String password;
+
+    public CustomUserDetails(Users user) {
+        this.username = user.getEmail();
+        this.password = user.getPassword();
+    }
+
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return null; // Implement according to your requirements
+    }
+
+    @Override
+    public String getPassword() {
+        return password;
+    }
+
+    @Override
+    public String getUsername() {
+        return username;
+    }
+
+    @Override
+    public boolean isAccountNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isAccountNonLocked() {
+        return true;
+    }
+
+    @Override
+    public boolean isCredentialsNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isEnabled() {
+        return true;
+    }
+}
+
+CustomUserDetailsService.java
+
+package org.springframework.skynet;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.Optional;
+
+@Service
+public class CustomUserDetailsService implements UserDetailsService {
+
+    private final UsersRepository usersRepository;
+
+    @Autowired
+    public CustomUserDetailsService(UsersRepository usersRepository) {
+        this.usersRepository = usersRepository;
+    }
+
+
+    @Override
+    public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
+        Optional<Users> userOptional = usersRepository.findByEmail(email);
+        if (userOptional.isEmpty()) {
+            throw new UsernameNotFoundException("User not found");
+        }
+        Users user = userOptional.get();
+        return new CustomUserDetails(user);
+    }
+
+}
+
+
+ErrorResponse.java
+
+package org.springframework.skynet;
+import java.util.List;
+
+public class ErrorResponse {
+    private String message;
+    private List<String> details;
+
+    public ErrorResponse(String message, List<String> details) {
+        super();
+        this.message = message;
+        this.details = details;
+    }
+
+    public String getMessage() {
+        return message;
+    }
+
+    public void setMessage(String message) {
+        this.message = message;
+    }
+
+    public List<String> getDetails() {
+        return details;
+    }
+
+    public void setDetails(List<String> details) {
+        this.details = details;
+    }
+}
+
+
+
+GlobalExceptionHandler.java
+
+package org.springframework.skynet;
+
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.context.request.WebRequest;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+@ControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<Object> handleAllExceptions(Exception ex, WebRequest request) {
+        List<String> details = new ArrayList<>();
+        details.add(ex.getLocalizedMessage());
+        ErrorResponse error = new ErrorResponse("Server Error", details);
+
+        // Log the exception
+        LoggerFactory.getLogger(GlobalExceptionHandler.class).error("Error Occurred", ex);
+
+        return new ResponseEntity<>(error, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+
+    // You can add other exception handlers here
+
+}
+
+
+MainController.java
+
+package org.springframework.skynet;
+
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Controller;
+import org.springframework.validation.BindingResult;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
+
+import org.springframework.security.core.AuthenticationException;
+
+import java.util.Optional;
+
+
+@Controller
+public class MainController {
+
+    private static final Logger logger = LoggerFactory.getLogger(MainController.class);
+
+
+    @Autowired
+    private final UsersService usersService;
+
+    @Autowired
+    private final UsersRepository usersRepository;
+
+
+    @Autowired
+    private final PasswordEncoderUtil passwordEncoderUtil;
+
+
+    private final AuthenticationManager authenticationManager;
+
+
+    @Autowired
+    public MainController(UsersService usersService, UsersRepository usersRepository, PasswordEncoderUtil passwordEncoderUtil, @Lazy AuthenticationManager authenticationManager) {
+        this.usersService = usersService;
+        this.usersRepository = usersRepository;
+        this.passwordEncoderUtil = passwordEncoderUtil;
+        this.authenticationManager = authenticationManager;
+    }
+
+
+    @GetMapping({"/home", "/", "/Home"})
+    protected String home() {
+        return "Home";
+    }
+
+    @GetMapping("/signup")
+    protected String signup() {
+        return "signup";
+    }
+
+
+    @PostMapping("/signup")
+    public String registerUser(@ModelAttribute Users user,
+                               BindingResult result,
+                               @RequestParam String phone_code,
+                               @RequestParam String phone,
+                               HttpServletRequest request,
+                               RedirectAttributes redirectAttributes) {
+        logger.info("Registering user: {}", user.getEmail());
+        try {
+            user.setContactNumber(phone_code, phone);
+            logger.info("ERRORRR found : {}",result.hasErrors());
+            if (result.hasErrors()) {
+                // Log errors or send them back to the form
+                logger.error("Form errors: {}", result.getAllErrors());
+                return "signup"; // Return back to signup form with error details
+            }
+
+            if (user.getPassword() == null || user.getPassword().trim().isEmpty()) {
+                redirectAttributes.addFlashAttribute("errorMessage", "Password cannot be empty.");
+                return "redirect:/signup";
+            }
+
+            // Hash the password before saving
+            // Use the autowired PasswordEncoderUtil instance
+            String hashedPassword = passwordEncoderUtil.encode(user.getPassword());
+            user.setPassword(hashedPassword);
+
+            usersService.saveUser(user);
+            request.getSession().setAttribute("registrationCompleted", true);
+            logger.info("User saved successfully with ID: {}", user.getId());
+            return "redirect:/success";
+
+        } catch (DataIntegrityViolationException e) {
+            logger.error("Duplicate entry: " + e.getMessage());
+            redirectAttributes.addFlashAttribute("errorMessage", "Duplicate entry detected. Please try again with different credentials.");
+            return "redirect:/signup";
+        } catch (Exception e) {
+            logger.error("Error during registration", e);
+            redirectAttributes.addFlashAttribute("errorMessage", "An error occurred. Please try again.");
+            return "redirect:/signup";
+        }
+    }
+
+    @GetMapping("/success")
+    public String success(HttpServletRequest request) {
+        if (Boolean.TRUE.equals(request.getSession().getAttribute("registrationCompleted"))) {
+            request.getSession().removeAttribute("registrationCompleted");
+            return "Success";
+        } else {
+            return "redirect:/signup";
+        }
+    }
+
+
+    @GetMapping({"/signin", "/Login"})
+    public String login_page() {
+        return "signin";
+    }
+
+    @GetMapping("/Account")
+    public String Account() {
+        return "Account";
+    }
+
+    @PostMapping("/signin")
+    public String processLogin(@RequestParam("email") String email,
+                               @RequestParam("password") String password,
+                               HttpServletRequest request, RedirectAttributes redirectAttributes) {
+
+        logger.info("Attempting to login with email: {}", email);
+        try {
+            Optional<Users> userOptional = usersRepository.findByEmail(email);
+            if (userOptional.isPresent()) {
+                Users user = userOptional.get();
+                logger.info("User found with email: {}", email);
+
+                logger.info("Password: {}", password);
+
+//                logger.info("User GetPassword: {}", user.getPassword());
+
+                if (passwordEncoderUtil.matches(password, user.getPassword())) {
+                    logger.info("Password matches for user: {}", email);
+                    // Manually set authentication
+                    UsernamePasswordAuthenticationToken authReq = new UsernamePasswordAuthenticationToken(email, password);
+                    Authentication auth = authenticationManager.authenticate(authReq);
+
+                    SecurityContextHolder.getContext().setAuthentication(auth);
+                    logger.info("Authentication successful for user: {}", email);
+                    return "redirect:/Account";
+                } else {
+                    // Password does not match
+                    logger.warn("Password mismatch for user: {}", email);
+                    redirectAttributes.addFlashAttribute("loginError", true);
+                    return "redirect:/signin";
+                }
+            } else {
+                // User not found
+                logger.warn("No user found with email: {}", email);
+                redirectAttributes.addFlashAttribute("loginError", true);
+                return "redirect:/signin";
+            }
+        } catch (Exception e) {
+            logger.error("Login error for user: {}, error: {}", email, e.getMessage(), e);
+            redirectAttributes.addFlashAttribute("errorMessage", "An error occurred. Please try again.");
+            return "redirect:/signin";
+        }
+    }
+
+}
+
+
+
+
+
+
+PasswordEncoderUtil.java
+
+package org.springframework.skynet;
+
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Component;
+
+@Component
+public class PasswordEncoderUtil implements PasswordEncoder {
+
+    private final BCryptPasswordEncoder bCryptPasswordEncoder = new BCryptPasswordEncoder();
+
+    @Override
+    public String encode(CharSequence rawPassword) {
+        return bCryptPasswordEncoder.encode(rawPassword);
+    }
+
+    @Override
+    public boolean matches(CharSequence rawPassword, String encodedPassword) {
+        return bCryptPasswordEncoder.matches(rawPassword, encodedPassword);
+    }
+}
+
+
+
+
+SkynetApplication.java
+
+package org.springframework.skynet;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration;
+import org.springframework.skynet.UsersService;
+
+@SpringBootApplication()
+//					  ☝️
+//#exclude = {SecurityAutoConfiguration.class}
+public class SkynetApplication {
+
+	public static void main(String[] args)
+	{
+		SpringApplication.run(SkynetApplication.class, args);
+	}
+
+}
+
+
+Users.java
+
+package org.springframework.skynet;
+
+import javax.crypto.*;
+import javax.crypto.spec.SecretKeySpec;
+import java.io.UnsupportedEncodingException;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.util.Base64;
+
+
+import jakarta.persistence.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+
+@Entity
+@Table(name = "users")
+public class Users {
+
+    @Id
+    @GeneratedValue(strategy= GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name="first_name")
+    private String firstName;
+    @Column(name="last_name")
+    private String lastName;
+    @Column(name = "email", unique = true)
+    private String email;
+
+    @Column(name="country")
+    private String country;
+
+    @Column(name="password")
+    private String password;
+
+    @Column(name = "contact_number", unique = true)
+    private String contactNumber;
+
+    private transient String phone_code;
+    private transient String phone;
+
+
+//    @Autowired
+//    private PasswordEncoderUtil passwordEncoderUtil;
+
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getFirstName() {
+        return firstName;
+    }
+
+    public void setFirstName(String firstName) {
+        this.firstName = firstName;
+    }
+
+    public String getLastName() {
+        return lastName;
+    }
+
+    public void setLastName(String lastName) {
+        this.lastName = lastName;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public String getContactNumber() {
+        return contactNumber;
+    }
+
+    public void setContactNumber(String phone_code, String phone) {
+        this.contactNumber = phone_code + phone;
+    }
+
+
+    public String getCountry() {
+        return country;
+    }
+
+    public void setCountry(String country) {
+        this.country = country;
+    }
+
+    public String getPassword() {
+        return password;
+    }
+
+    public void setPassword(String password) throws Exception {
+
+        if (password == null || password.isEmpty()) {
+            throw new IllegalArgumentException("Password cannot be empty");
+        }
+
+        this.password = PasswordEncoderUtil.encodePassword(password);
+
+    }
+
+}
+
+
+UsersRepository.java
+
+package org.springframework.skynet;
+
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.CrudRepository;
+import org.springframework.skynet.Users;
+import java.util.Optional;
+
+
+public interface UsersRepository extends CrudRepository<Users, Long> {
+
+    @Query("SELECT u FROM Users u WHERE u.email = ?1")
+    Optional<Users> findByEmail(String email);
+
+
+    // repository methods
+
+}
+
+
+UsersService.java
+
+package org.springframework.skynet;
+
+import jakarta.transaction.Transactional;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+@Service
+public class UsersService {
+
+    private static final Logger logger = LoggerFactory.getLogger(UsersService.class);
+
+
+    @Autowired
+    private UsersRepository usersRepository;
+
+    @Autowired
+    private PasswordEncoderUtil passwordEncoderUtil;
+
+
+    @Transactional
+    public void saveUser(Users user) throws Exception {
+        logger.info("Saving user: {}", user.getEmail());
+        String encodedPassword = passwordEncoderUtil.encode(user.getPassword());
+        user.setPassword(encodedPassword);
+        usersRepository.save(user);
+        logger.info("User saved with ID: {}", user.getId());
+    }
+
+
+}
+
+
+
+
+
+WebSecurityConfig.java
+
+package org.springframework.skynet;
+
+import org.jetbrains.annotations.NotNull;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.*;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configuration.WebSecurityConfiguration;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.annotation.web.configurers.LogoutConfigurer;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
+
+
+@Configuration
+@EnableWebSecurity
+public class WebSecurityConfig {
+
+
+    @Autowired
+    private CustomUserDetailsService customUserDetailsService;
+//    private final PasswordEncoder passwordEncoder;
+
+//    @Autowired
+//    public WebSecurityConfig(@Lazy CustomUserDetailsService customUserDetailsService, PasswordEncoder passwordEncoder) {
+//        this.customUserDetailsService = customUserDetailsService;
+//        this.passwordEncoder = passwordEncoder;
+//    }
+
+    @Bean
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration authenticationConfiguration) throws Exception {
+        return authenticationConfiguration.getAuthenticationManager();
+    }
+
+    @Autowired
+    private PasswordEncoderUtil passwordEncoderUtil;
+
+
+
+    @Bean
+    public SecurityFilterChain filterChain(@NotNull HttpSecurity http) throws Exception {
+        http
+                .csrf().csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                .and()
+                .authorizeHttpRequests(authz -> authz
+                        .requestMatchers("/", "/home", "/signup", "/success", "/Styles.css", "/Account").permitAll()
+                        .anyRequest().authenticated()
+                )
+                .formLogin(form -> form
+                        .loginPage("/signin")
+                        .loginProcessingUrl("/perform_login")
+                        .defaultSuccessUrl("/Account", true)
+                        .failureUrl("/signin?error=true")
+                        .permitAll()
+                )
+                .logout(logout -> logout
+                .logoutUrl("/perform_logout")
+                .logoutSuccessUrl("/signin")
+                .invalidateHttpSession(true)
+                .deleteCookies("JSESSIONID")
+                .permitAll())
+                .apply(new CustomConfigurer());
+        return http.build();
+    }
+
+    @Autowired
+    public void configure(AuthenticationManagerBuilder auth) throws Exception {
+        auth
+                .userDetailsService(customUserDetailsService)
+                .passwordEncoder(passwordEncoderUtil);
+    }
+
+    public static class CustomConfigurer extends AbstractHttpConfigurer<CustomConfigurer, HttpSecurity> {
+    }
+
+}
+
+
+
+
+resources
+
+static/Styles.css
+
+body, html {
+    margin: 0;
+    padding: 0;
+    font-family: Arial, sans-serif;
+}
+
+header {
+    border-bottom: 1px solid #000;
+    padding: 1rem 0;
+}
+
+.header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 0 10%;
+}
+
+.logo {
+    font-weight: bold;
+    font-size: 1.5rem;
+}
+
+nav ul {
+    list-style: none;
+    display: flex;
+    margin: 0;
+    padding: 0;
+}
+
+nav ul li {
+    padding-left: 2rem;
+}
+
+nav ul li a {
+    text-decoration: none;
+    color: #000;
+    font-weight: bold;
+}
+
+.hero {
+    text-align: center;
+    padding: 2rem;
+    background-image: url('path-to-your-image.jpg'); /* Replace with your image path */
+    background-size: cover;
+    background-position: center;
+}
+
+.hero-content {
+    padding-top: 5%; /* Adjust according to your design */
+}
+
+.tagline {
+    font-size: 1.2rem;
+    margin: 1rem 0;
+}
+
+button {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    font-size: 1rem;
+    margin-top: 2rem;
+}
+
+button:hover {
+    background-color: #0056b3;
+}
+
+/* Add this to your existing styles.css */
+.login-form-container {
+    width: 300px;
+    margin: 50px auto;
+    padding: 20px;
+    background: #fff;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.login-form-container h2 {
+    text-align: center;
+}
+
+.login-form-container p {
+    text-align: center;
+}
+
+.login-form-container .input-field {
+    margin-bottom: 15px;
+}
+
+.login-form-container label {
+    display: block;
+    margin-bottom: 5px;
+}
+
+.login-form-container input[type="email"],
+.login-form-container input[type="password"] {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.login-btn {
+    width: 100%;
+    padding: 10px;
+    background-color: #007bff;
+    border: none;
+    border-radius: 4px;
+    color: white;
+    margin-top: 10px;
+}
+
+.login-btn:hover {
+    background-color: #0056b3;
+}
+
+.forgot-password-link {
+    display: block;
+    text-align: right;
+    margin-bottom: 20px;
+}
+
+.separator {
+    text-align: center;
+    margin: 20px 0;
+}
+
+.social-login-buttons {
+    text-align: center;
+}
+
+.social-button {
+    padding: 10px 20px;
+    margin: 0 5px;
+    border: none;
+    color: #fff;
+    border-radius: 4px;
+}
+
+.google {
+    background-color: #dd4b39;
+}
+
+.facebook {
+    background-color: #3b5998;
+}
+
+.social-button:hover {
+    opacity: 0.8;
+}
+
+/* Add these styles to your existing CSS file */
+.signup-container {
+    max-width: 500px;
+    margin: 2rem auto;
+    padding: 1rem;
+    background-color: #fff;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.signup-form h1 {
+    text-align: center;
+    margin-bottom: 1rem;
+}
+
+.signup-form input[type="text"],
+.signup-form input[type="email"],
+.signup-form input[type="password"],
+.signup-form select,
+.signup-form input[type="tel"] {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+.phone-group {
+    display: flex;
+}
+
+.phone-group select,
+.phone-group input[type="tel"] {
+    flex: 1;
+}
+
+.phone-group select {
+    margin-right: 10px;
+}
+
+.privacy-policy {
+    margin: 10px 0;
+}
+
+.g-recaptcha {
+    margin-bottom: 10px;
+}
+
+.signup-form button[type="submit"] {
+    width: 100%;
+    padding: 10px;
+    border: none;
+    border-radius: 4px;
+    background-color: #000;
+    color: white;
+    margin-bottom: 10px;
+}
+
+.signup-form button[type="submit"]:hover {
+    background-color: #333;
+}
+
+.signup-form p {
+    text-align: center;
+}
+
+templates
+
+Account.html
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account</title>
+    <link rel="stylesheet" href="/Styles.css">
+</head>
+<body>
+
+<header>
+    <div class="header-content">
+        <span class="logo">Skynet</span>
+        <nav>
+            <ul>
+                <li><a href="/Home">Home</a></li>
+                <li> User </li>
+            </ul>
+        </nav>
+    </div>
+</header>
+
+<main>
+    <section class="hero">
+        <div class="hero-content">
+            <h1>Skynet</h1>
+            <p class="tagline">Analyze</p>
+            <button>Get Started</button>
+        </div>
+    </section>
+</main>
+</body>
+</html>
+
+
+
+Home.html
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Skynet</title>
+    <link rel="stylesheet" href="/Styles.css">
+</head>
+<body>
+<header>
+    <div class="header-content">
+        <span class="logo">Skynet</span>
+        <nav>
+            <ul>
+                <li><a href="/Home">Home</a></li>
+                <li><a href="/signin">Log In</a></li>
+                <li><a href="/signup">Sign Up</a></li>
+            </ul>
+        </nav>
+    </div>
+</header>
+<main>
+    <section class="hero">
+        <div class="hero-content">
+            <h1>Skynet</h1>
+            <p class="tagline">Analyze</p>
+            <p>At Skynet, we understand the value of your time and energy. Contact us today to learn more.</p>
+            <button>Get Started</button>
+        </div>
+    </section>
+</main>
+<!--<script src="scripts.js"></script>-->
+</body>
+</html>
+
+signin.html
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Skynet</title>
+    <link rel="stylesheet" href="/Styles.css">
+</head>
+<body>
+<div class="login-form-container">
+    <h2>Log In</h2>
+    <div th:if="${errorMessage}" th:text="${errorMessage}" id="error-message" style="display: none;"></div>
+    <p>New to this site? <a href="signup.html">Sign Up</a></p>
+    <form id="loginForm" class="signin-form" action="/signin" method="post" th:action="@{/signin}">
+        <div class="input-field">
+            <label for="email">Email *</label>
+            <input type="email" id="email" name="email" placeholder="Enter Email" required>
+        </div>
+        <div class="input-field">
+            <label for="password">Password *</label>
+            <input type="password" id="password" name="password" placeholder="Enter Password" required>
+        </div>
+        <a href="#" class="forgot-password-link">Forgot password?</a>
+        <button type="submit" class="login-btn">Log In</button>
+<!--        <div class="separator">or</div>-->
+<!--        <div class="social-login-buttons">-->
+<!--            <button class="social-button google">G</button>-->
+<!--            <button class="social-button facebook">f</button>-->
+<!--        </div>-->
+    </form>
+</div>
+<script>
+    window.onload = function() {
+        var loginError = new URLSearchParams(window.location.search).get('loginError');
+        if (loginError) {
+            alert("Incorrect credentials. Please try again.");
+        }
+
+        document.getElementById('loginForm').onsubmit = function(event) {
+            // Existing form submission logic
+        };
+    };
+</script>
+
+</body>
+</html>
+
+
+signup.html
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Up - Skynet</title>
+    <link rel="stylesheet" href="/Styles.css">
+</head>
+<body>
+<div class="signup-container">
+    <h1>Sign Up</h1>
+
+    <!-- Add this at the top of your body tag -->
+    <div th:if="${errorMessage}" th:text="${errorMessage}" id="error-message" style="display: none;"></div>
+
+    <form id="signupForm" class="signup-form" action="/signup" method="post" th:action="@{/signup}">
+        <input type="text" name="firstName" id="firstName" placeholder="First name" required>
+        <input type="text" name="lastName" id="lastName" placeholder="Last name" required>
+        <input type="email" name="email" id="email" placeholder="Email" required>
+        <input type="password" name="password" id="password" placeholder="Password" required>
+        <input type="password" name="confirm_password" id="confirm_password" placeholder="Confirm Password" required>
+        <select name="country" id="country" required>
+            <option value="">Country of Residence</option>
+            <!-- Populate with options -->
+            <option value="India">India</option>
+            <option value="USA">USA</option>
+            <option value="UK">UK</option>
+            <option value="Europe">Europe</option>
+            <option value="Japan">Japan</option>
+            <option value="China">China</option>
+            <option value="Canada">Canada</option>
+            <option value="Australia">Australia</option>
+            <option value="South Korea">South Korea</option>
+        </select>
+        <div class="phone-group">
+            <select name="phone_code" id="phoneCode" required>
+                <option value="+91">IN +91</option>
+                <!-- Populate with options -->
+                <option value="+1">US +1</option>
+                <option value="+04">UK +04</option>
+                <option value="+44">EU +44</option>
+                <option value="+63">CH +63</option>
+            </select>
+            <input type="tel" name="phone" id="phone" placeholder="Phone" required>
+        </div>
+        <label class="privacy-policy">
+            <input type="checkbox" id="privacyPolicy" required>
+            I agree to the privacy policy
+        </label>
+        <div class="g-recaptcha" data-sitekey="your_site_key"></div>
+        <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}" />
+        <button type="submit">Sign Up</button>
+        <p>Already a member? <a href="signin.html">Log In</a></p>
+    </form>
+</div>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const password = document.getElementById('password');
+        const confirmPassword = document.getElementById('confirm_password');
+        const form = document.getElementById('signupForm');
+
+        function validatePassword() {
+            if (password.value !== confirmPassword.value) {
+                confirmPassword.setCustomValidity('Passwords do not match');
+            } else {
+                confirmPassword.setCustomValidity('');
+            }
+        }
+
+        password.onchange = validatePassword;
+        confirmPassword.onkeyup = validatePassword;
+
+        form.onsubmit = function(event) {
+            if (password.value !== confirmPassword.value) {
+                event.preventDefault();
+                alert("Passwords do not match. Please try again.");
+            }
+        };
+    });
+</script>
+
+<!--<script src="https://www.google.com/recaptcha/api.js" async defer></script>-->
+</body>
+</html>
+
+
+Success.html
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registration Successful</title>
+    <link rel="stylesheet" href="/Styles.css">
+</head>
+<body>
+<div class="success-container">
+    <h1>Registration Successful</h1>
+    <p>Your account has been successfully created.</p>
+    <a href="/Login">Click here to log in</a>
+    <br></br>
+    <p>Or </p>
+    <a href="/home">Click here to Home Page</a>
+</div>
+</body>
+</html>
+
+
+
+
+application.properties
+
+spring.application.name=Skynet
+logging.level.root=TRACE
+spring.datasource.url=jdbc:mysql://localhost:3306/codejavadb
+spring.datasource.username=root
+spring.datasource.password=root
+spring.sql.init.mode=always
+logging.level.org.springframework.web.client.RestTemplate=TRACE
+logging.level.org.apache.coyote.http11=TRACE
+logging.file.name=app_log22.log
+logging.level.org.springframework.web.servlet.resource=TRACE
+logging.level.org.springframework.security=TRACE
+spring.jpa.hibernate.ddl-auto=none
+
+schema.sql
+
+SET @dbname = DATABASE();
+SET @tablename = "SPRING_SESSION";
+SET @indexname1 = "SPRING_SESSION_IX1";
+SET @indexname2 = "SPRING_SESSION_IX2";
+SET @indexname3 = "SPRING_SESSION_IX3";
+
+-- Create SPRING_SESSION table if it does not exist
+CREATE TABLE IF NOT EXISTS SPRING_SESSION (
+                                              PRIMARY_ID CHAR(36) NOT NULL,
+                                              SESSION_ID CHAR(36) NOT NULL,
+                                              CREATION_TIME BIGINT NOT NULL,
+                                              LAST_ACCESS_TIME BIGINT NOT NULL,
+                                              MAX_INACTIVE_INTERVAL INT NOT NULL,
+                                              EXPIRY_TIME BIGINT NOT NULL,
+                                              PRINCIPAL_NAME VARCHAR(100),
+                                              CONSTRAINT SPRING_SESSION_PK PRIMARY KEY (PRIMARY_ID)
+) ENGINE=InnoDB ROW_FORMAT=DYNAMIC;
+
+-- Create indexes conditionally
+SELECT COUNT(*) INTO @exist FROM INFORMATION_SCHEMA.STATISTICS
+WHERE table_schema = @dbname AND table_name = @tablename AND index_name = @indexname1;
+SET @sql = IF(@exist <= 0, CONCAT('CREATE INDEX ', @indexname1, ' ON ', @tablename, ' (SESSION_ID)'), 'SELECT ''Index exists''');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- Repeat for other indexes
+SELECT COUNT(*) INTO @exist FROM INFORMATION_SCHEMA.STATISTICS
+WHERE table_schema = @dbname AND table_name = @tablename AND index_name = @indexname2;
+SET @sql = IF(@exist <= 0, CONCAT('CREATE INDEX ', @indexname2, ' ON ', @tablename, ' (EXPIRY_TIME)'), 'SELECT ''Index exists''');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SELECT COUNT(*) INTO @exist FROM INFORMATION_SCHEMA.STATISTICS
+WHERE table_schema = @dbname AND table_name = @tablename AND index_name = @indexname3;
+SET @sql = IF(@exist <= 0, CONCAT('CREATE INDEX ', @indexname3, ' ON ', @tablename, ' (PRINCIPAL_NAME)'), 'SELECT ''Index exists''');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- Create SPRING_SESSION_ATTRIBUTES table if it does not exist
+CREATE TABLE IF NOT EXISTS SPRING_SESSION_ATTRIBUTES (
+                                                         SESSION_PRIMARY_ID CHAR(36) NOT NULL,
+                                                         ATTRIBUTE_NAME VARCHAR(200) NOT NULL,
+                                                         ATTRIBUTE_BYTES BLOB NOT NULL,
+                                                         CONSTRAINT SPRING_SESSION_ATTRIBUTES_PK PRIMARY KEY (SESSION_PRIMARY_ID, ATTRIBUTE_NAME),
+                                                         CONSTRAINT SPRING_SESSION_ATTRIBUTES_FK FOREIGN KEY (SESSION_PRIMARY_ID) REFERENCES SPRING_SESSION(PRIMARY_ID) ON DELETE CASCADE
+) ENGINE=InnoDB ROW_FORMAT=DYNAMIC;
+
+
+CREATE TABLE IF NOT EXISTS users (
+                       id BIGINT NOT NULL AUTO_INCREMENT,
+                       contact_number VARCHAR(50) NOT NULL,
+                       email VARCHAR(45) NOT NULL,
+                       first_name VARCHAR(45) NOT NULL,
+                       last_name VARCHAR(45) NOT NULL,
+                       password VARCHAR(1000) NOT NULL,
+                       country VARCHAR(45) NOT NULL,
+                       PRIMARY KEY (id),
+                       UNIQUE KEY (contact_number),
+                       UNIQUE KEY (email)
+);
+
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>3.2.4</version>
+		<relativePath/> <!-- lookup parent from repository -->
+	</parent>
+	<groupId>org.springframework</groupId>
+	<artifactId>Skynet</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+	<name>Skynet</name>
+	<description>Skynet</description>
+	<properties>
+		<java.version>17</java.version>
+		<spring-cloud.version>2023.0.1</spring-cloud.version>
+	</properties>
+	<dependencies>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-jdbc</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-thymeleaf</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web-services</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-jpa</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.session</groupId>
+			<artifactId>spring-session-jdbc</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.thymeleaf.extras</groupId>
+			<artifactId>thymeleaf-extras-springsecurity6</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-devtools</artifactId>
+			<scope>runtime</scope>
+			<optional>true</optional>
+		</dependency>
+		<dependency>
+			<groupId>com.microsoft.sqlserver</groupId>
+			<artifactId>mssql-jdbc</artifactId>
+			<scope>runtime</scope>
+		</dependency>
+		<dependency>
+			<groupId>com.mysql</groupId>
+			<artifactId>mysql-connector-j</artifactId>
+			<scope>runtime</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.restdocs</groupId>
+			<artifactId>spring-restdocs-mockmvc</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>jakarta.validation</groupId>
+			<artifactId>jakarta.validation-api</artifactId>
+			<version>3.0.1</version>
+		</dependency>
+
+		<dependency>
+            <groupId>org.jetbrains</groupId>
+            <artifactId>annotations</artifactId>
+            <version>RELEASE</version>
+            <scope>compile</scope>
+        </dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
+	</dependencies>
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>org.springframework.cloud</groupId>
+				<artifactId>spring-cloud-dependencies</artifactId>
+				<version>${spring-cloud.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.asciidoctor</groupId>
+				<artifactId>asciidoctor-maven-plugin</artifactId>
+				<version>2.2.1</version>
+				<executions>
+					<execution>
+						<id>generate-docs</id>
+						<phase>prepare-package</phase>
+						<goals>
+							<goal>process-asciidoc</goal>
+						</goals>
+						<configuration>
+							<backend>html</backend>
+							<doctype>book</doctype>
+						</configuration>
+					</execution>
+				</executions>
+				<dependencies>
+					<dependency>
+						<groupId>org.springframework.restdocs</groupId>
+						<artifactId>spring-restdocs-asciidoctor</artifactId>
+						<version>${spring-restdocs.version}</version>
+					</dependency>
+				</dependencies>
+			</plugin>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+		</plugins>
+	</build>
+
+</project>
+
+
+
+|-- pom.xml
+|-- src/
+|   |-- .DS_Store
+|   |-- main/
+|   |   |-- .DS_Store
+|   |   |-- java/
+|   |   |   `-- org/
+|   |   |   |   `-- springframework/
+|   |   |   |   |   `-- skynet/
+|   |   |   |   |   |   |-- CustomUserDetails.java
+|   |   |   |   |   |   |-- CustomUserDetailsService.java
+|   |   |   |   |   |   |-- ErrorResponse.java
+|   |   |   |   |   |   |-- GlobalExceptionHandler.java
+|   |   |   |   |   |   |-- MainController.java
+|   |   |   |   |   |   |-- PasswordEncoderUtil.java
+|   |   |   |   |   |   |-- SkynetApplication.java
+|   |   |   |   |   |   |-- Users.java
+|   |   |   |   |   |   |-- UsersRepository.java
+|   |   |   |   |   |   |-- UsersService.java
+|   |   |   |   |   |   `-- WebSecurityConfig.java
+|   |   `-- resources/
+|   |   |   |-- application.properties
+|   |   |   |-- schema.sql
+|   |   |   |-- static/
+|   |   |   |   |-- JS/
+|   |   |   |   |   |-- login.js
+|   |   |   |   |   `-- signup.js
+|   |   |   |   `-- Styles.css
+|   |   |   `-- templates/
+|   |   |   |   |-- Account.html
+|   |   |   |   |-- Home.html
+|   |   |   |   |-- Success.html
+|   |   |   |   |-- signin.html
+|   |   |   |   `-- signup.html
